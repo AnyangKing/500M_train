@@ -1,0 +1,6 @@
+  - d_model: 128
+  - n_layers: 9
+  - n_heads: 8
+  - lr: 0.00047805672196318984
+  - batch_size: 256
+  - dropout: 0.053395242165250906
