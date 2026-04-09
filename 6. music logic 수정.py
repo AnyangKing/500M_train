@@ -105,8 +105,11 @@ def generate_controlled_traj_cm(td_noise_cm, doa_noise_deg, target_dist_cm=None,
         vec = 0.8*vec + 0.2*rv; vec /= (np.linalg.norm(vec)+1e-9); traj[i] = traj[i-1] + vec*100.0
 
     feats = np.zeros((200, 25), dtype=np.float32)
+    # raw_signals: (200, 8, N_SNAP) 복소 배열 - MUSIC 전용, feat_cm과 독립
+    raw_signals = np.zeros((200, 8, MUSIC_N_SNAP), dtype=np.complex128)
     td_std, doa_std = td_noise_cm / SOUND_SPEED_CM_S, np.radians(doa_noise_deg)
     sensor_specific_biases = np.random.normal(m_bias_cm, m_bias_cm * 0.5 + 1e-9, size=8) / SOUND_SPEED_CM_S
+    noise_std = 1.0 / np.sqrt(2.0 * MUSIC_SNR_LINEAR)
     for i, p in enumerate(traj):
         d = np.linalg.norm(sensors - p, axis=1)
         toa = (d / SOUND_SPEED_CM_S) + sensor_specific_biases + np.random.normal(0, td_std, size=8)
@@ -114,22 +117,71 @@ def generate_controlled_traj_cm(td_noise_cm, doa_noise_deg, target_dist_cm=None,
         feats[i] = np.concatenate([toa[0:1]*SOUND_SPEED_CM_S, (toa-toa[0])*SOUND_SPEED_CM_S,
                                    np.arctan2(dp[:,1], dp[:,0]) + np.random.normal(0, doa_std, 8),
                                    np.arctan2(dp[:,2], np.sqrt(dp[:,0]**2 + dp[:,1]**2)+1e-9) + np.random.normal(0, doa_std, 8)])
-    return traj, feats
+        # MUSIC용 raw signal 생성: toa는 feat_cm과 동일한 노이즈가 적용된 관측값
+        # feat_cm에서 역산하지 않고 여기서 직접 생성 → feat_cm 경로 완전 차단
+        s = np.exp(1j * np.random.uniform(0, 2 * np.pi, MUSIC_N_SNAP))
+        steering = np.exp(-1j * 2 * np.pi * MUSIC_F0 * toa)  # shape (8,)
+        X = np.outer(steering, s)
+        noise = noise_std * (np.random.randn(8, MUSIC_N_SNAP) + 1j * np.random.randn(8, MUSIC_N_SNAP))
+        raw_signals[i] = X + noise
+    return traj, feats, raw_signals
 
-def music_doa_estimation_stable(sensors, feat_t):
+MUSIC_F0 = 32000.0          # 중심 주파수 (Hz)
+MUSIC_N_SNAP = 64           # 스냅샷 수 (공분산 행렬 추정용)
+MUSIC_AZ_RES = 2            # azimuth 탐색 해상도 (deg)
+MUSIC_EL_RES = 2            # elevation 탐색 해상도 (deg)
+MUSIC_SNR_LINEAR = 10.0     # 신호 대 잡음비 (선형, SNR=10 → 10dB)
+
+def music_doa_estimation_stable(sensors, raw_signals_t):
     """
-    센서 관측 데이터(feat_t)만으로 방향 벡터를 추정한다.
-    feat_t[9:17]  : 각 센서의 azimuth 관측값 (rad)
-    feat_t[17:25] : 각 센서의 elevation 관측값 (rad)
-    8개 센서 관측값을 평균 내어 방향 벡터로 변환한다.
+    협대역 MUSIC 알고리즘으로 DOA를 추정한다.
+    sensors       : 센서 위치 배열 (8, 3), cm 단위
+    raw_signals_t : 타임스텝 t의 복소 수신 신호 (8, N_SNAP)
+                    generate_controlled_traj_cm에서 직접 생성된 값.
+                    feat_cm 경로를 완전히 차단하여 치팅 없음.
+    반환값        : 추정된 방향 단위 벡터 (3,)
     """
-    az = np.mean(feat_t[9:17])
-    el = np.mean(feat_t[17:25])
-    est_vec = np.array([np.cos(el) * np.cos(az),
-                        np.cos(el) * np.sin(az),
-                        np.sin(el)], dtype=np.float64)
-    norm = np.linalg.norm(est_vec)
-    return est_vec / (norm + 1e-9)
+    n_signals = 1  # 단일 음원 가정
+    X = raw_signals_t  # (8, N_SNAP)
+
+    # 공간 공분산 행렬 추정
+    R = (X @ X.conj().T) / MUSIC_N_SNAP
+
+    # 고유값 분해 (내림차순)
+    eigenvalues, eigenvectors = np.linalg.eigh(R)
+    idx = np.argsort(eigenvalues)[::-1]
+    eigenvectors = eigenvectors[:, idx]
+
+    # 잡음 부분공간 추출
+    En = eigenvectors[:, n_signals:]  # shape (8, 7)
+
+    # 센서 위치를 미터 단위로 변환
+    sensors_m = sensors.astype(np.float64) / 100.0
+    lam = (SOUND_SPEED_CM_S / 100.0) / MUSIC_F0  # 파장 (m)
+
+    # 2D 방향 탐색 (azimuth, elevation)
+    az_range = np.radians(np.arange(-180, 180, MUSIC_AZ_RES))
+    el_range = np.radians(np.arange(-90, 90, MUSIC_EL_RES))
+    best_power, best_az, best_el = -1.0, 0.0, 0.0
+
+    for el in el_range:
+        cos_el = np.cos(el)
+        sin_el = np.sin(el)
+        for az in az_range:
+            d = np.array([cos_el * np.cos(az), cos_el * np.sin(az), sin_el])
+            proj = sensors_m @ d
+            a = np.exp(-1j * 2 * np.pi * proj / lam)
+            a = a / (np.linalg.norm(a) + 1e-12)
+            En_a = En.conj().T @ a
+            denom = np.real(En_a.conj() @ En_a)
+            power = 1.0 / (denom + 1e-12)
+            if power > best_power:
+                best_power, best_az, best_el = power, az, el
+
+    est_vec = np.array([np.cos(best_el) * np.cos(best_az),
+                        np.cos(best_el) * np.sin(best_az),
+                        np.sin(best_el)], dtype=np.float64)
+    return est_vec / (np.linalg.norm(est_vec) + 1e-9)
 
 def localize_music(sensors, estimated_doa, feat_t):
     """
@@ -139,18 +191,18 @@ def localize_music(sensors, estimated_doa, feat_t):
     8개 센서 추정 거리를 평균 내어 배열 중심까지의 거리로 사용한다.
     """
     d0 = feat_t[0]
-    d_all = np.concatenate([[d0], d0 + feat_t[1:9]])
+    d_all = np.concatenate([[d0], d0 + feat_t[2:9]])
     est_dist_cm = np.mean(d_all)
     return np.mean(sensors, axis=0) + estimated_doa * est_dist_cm
 
 def solve_ls_localization(tdoa_values_cm, sensors):
     """
-    TDOA 기반 LS 위치 추정 (feat_cm[t, 1:9] 입력).
-    센서 0 기준 TDOA 거리 차 7개를 이용해 위치를 추정한다.
+    TDOA 기반 LS 위치 추정 (feat_cm[t, 2:9] 입력).
+    센서 0 기준 실제 TDOA 거리 차 7개(센서 1~7)를 이용해 위치를 추정한다.
     """
     def equations(p, tdoa, s):
         d0 = np.linalg.norm(p - s[0])
-        return [np.linalg.norm(p - s[i]) - d0 - tdoa[i-1] for i in range(1, len(s))]
+        return [np.linalg.norm(p - s[i+1]) - d0 - tdoa[i] for i in range(len(tdoa))]
     res = least_squares(equations, np.array([0.0, 0.0, 0.0]), args=(tdoa_values_cm, sensors), ftol=1e-3, xtol=1e-3)
     return res.x
 
@@ -198,19 +250,19 @@ if __name__ == '__main__':
             t_td_m  = (val if type == 'tdoa'     else 0.0)
             t_doa   = (val if type == 'doa'      else C_DOA)
             for _ in range(ITER):
-                gt_cm, feat_cm = generate_controlled_traj_cm(t_td_std, t_doa, t_dist, t_td_m)
+                gt_cm, feat_cm, raw_signals = generate_controlled_traj_cm(t_td_std, t_doa, t_dist, t_td_m)
                 for k, m in zip(['Proposed', 'LSTM', 'MLP', 'CNN'], [p_m, l_m, m_m, c_m]):
                     errs_cm[k].append(calculate_rmse(gt_cm, sliding_window_inference_cm(m, sx, sy, feat_cm)))
                 kf_t = []
-                ls_init = solve_ls_localization(feat_cm[0, 1:9], sensors_loc_cm)
+                ls_init = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
                 kf = KalmanFilter(ls_init)
                 for t in range(200):
-                    ls_pos = solve_ls_localization(feat_cm[t, 1:9], sensors_loc_cm)
+                    ls_pos = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
                     kf_t.append(kf.predict_and_update(ls_pos))
                 errs_cm['KF'].append(calculate_rmse(gt_cm, np.array(kf_t)))
                 p_mus = []
                 for t in range(200):
-                    m_vec = music_doa_estimation_stable(sensors_loc_cm, feat_cm[t])
+                    m_vec = music_doa_estimation_stable(sensors_loc_cm, raw_signals[t])
                     p_mus.append(localize_music(sensors_loc_cm, m_vec, feat_cm[t]))
                 errs_cm['MUSIC'].append(calculate_rmse(gt_cm, np.array(p_mus)))
             for k in res.keys(): res[k].append(np.mean(errs_cm[k]) / 100.0)
@@ -263,18 +315,18 @@ if __name__ == '__main__':
     # ==============================================================================
     # 5. 모든 Figure 시각화 (Figure 1~9)
     # ==============================================================================
-    gt_cm, feat_cm = generate_controlled_traj_cm(7.5, 0.5, target_dist_cm=40000, m_bias_cm=7.5)
+    gt_cm, feat_cm, raw_signals = generate_controlled_traj_cm(7.5, 0.5, target_dist_cm=40000, m_bias_cm=7.5)
     p_all = {k: sliding_window_inference_cm(m, sx, sy, feat_cm)/100.0 for k, m in zip(['Proposed', 'CNN', 'LSTM', 'MLP'], [p_m, c_m, l_m, m_m])}
     gt_m, music_m_list = gt_cm/100.0, []
     for t in range(200):
-        m_v = music_doa_estimation_stable(sensors_loc_cm, feat_cm[t])
+        m_v = music_doa_estimation_stable(sensors_loc_cm, raw_signals[t])
         music_m_list.append(localize_music(sensors_loc_cm, m_v, feat_cm[t]) / 100.0)
     p_all['MUSIC'] = np.array(music_m_list)
     kf_vis_traj = []
-    ls_init_vis = solve_ls_localization(feat_cm[0, 1:9], sensors_loc_cm)
+    ls_init_vis = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
     kf_vis = KalmanFilter(ls_init_vis)
     for t in range(200):
-        ls_pos_vis = solve_ls_localization(feat_cm[t, 1:9], sensors_loc_cm)
+        ls_pos_vis = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
         kf_vis_traj.append(kf_vis.predict_and_update(ls_pos_vis) / 100.0)
     p_all['KF'] = np.array(kf_vis_traj)
 
@@ -318,10 +370,10 @@ if __name__ == '__main__':
 
     # Figure 8: 100-300m 구간 상세 (가로선 복원)
     plt.figure(8, figsize=(10, 7)); mask = (dist_steps >= 10000) & (dist_steps <= 30000); steps_sub = dist_steps[mask]/100.0
-    plt.gca().set_xticks(np.arange(100, 301, 20)); plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='major', ls=':', alpha=0.5)
+    plt.gca().set_xticks(np.arange(100, 301, 20)); plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
     for k in model_styles.keys():
         plt.plot(steps_sub, np.array(r_dist[k])[mask], label=('1D-CNN' if k=='CNN' else k), color=model_styles[k]['color'], marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=2.0, markevery=2)
-    plt.title("Distance Error Analysis (100m ~ 300m Section)"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
+    plt.yscale('log'); plt.ylim(0.1, 1000); plt.gca().yaxis.set_major_formatter(ScalarFormatter()); plt.title("Distance Error Analysis (100m ~ 300m Section)"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
     # Figure 9: TDOA 노이즈 Std 분석 (신규)
     plt.figure(9, figsize=(10, 7)); td_std_us = (tdoa_std_steps_cm / SOUND_SPEED_CM_S) * 1000000
