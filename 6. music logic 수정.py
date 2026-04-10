@@ -238,7 +238,7 @@ if __name__ == '__main__':
         c_m = CNN1DModel(25, 3, 0.3).to(DEVICE); c_m.load_state_dict(torch.load(CONFIG['cnn_path'], map_location=DEVICE))
     except: print("모델 파일 확인 필요"); sys.exit()
 
-    ITER, sensors_loc_cm = 100000, get_sensors_cm()
+    ITER, sensors_loc_cm = 1000, get_sensors_cm()
 
     def run_full_comparison(steps, type='dist'):
         res = {k: [] for k in model_styles.keys()}
