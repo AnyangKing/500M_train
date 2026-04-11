@@ -97,7 +97,7 @@ MUSIC_F0 = 32000.0          # 중심 주파수 (Hz)
 MUSIC_N_SNAP = 64           # 스냅샷 수 (공분산 행렬 추정용)
 MUSIC_AZ_RES = 2            # azimuth 탐색 해상도 (deg)
 MUSIC_EL_RES = 2            # elevation 탐색 해상도 (deg)
-MUSIC_SNR_LINEAR = 10.0     # 신호 대 잡음비 (선형, SNR=10 → 10dB)
+MUSIC_SNR_LINEAR = 31.6     # 신호 대 잡음비 (선형, SNR=31.6 → 15dB, TDOA 노이즈 수준과 공정성 고려)
 
 # 탐색 격자 사전 계산 - PyTorch GPU 텐서로 올려두기 (매 호출마다 재계산 방지)
 _AZ_NP = np.radians(np.arange(-180, 180, MUSIC_AZ_RES))
