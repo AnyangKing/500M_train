@@ -136,7 +136,10 @@ def generate_controlled_traj_cm(td_noise_cm, doa_noise_deg, target_dist_cm=None,
                                    np.arctan2(dp[:,1], dp[:,0]) + np.random.normal(0, doa_std, 8),
                                    np.arctan2(dp[:,2], np.sqrt(dp[:,0]**2 + dp[:,1]**2)+1e-9) + np.random.normal(0, doa_std, 8)])
         s = np.exp(1j * np.random.uniform(0, 2 * np.pi, MUSIC_N_SNAP))
-        steering = np.exp(-1j * 2 * np.pi * MUSIC_F0 * toa)
+        direction = (p - np.mean(sensors, axis=0)) / (np.linalg.norm(p - np.mean(sensors, axis=0)) + 1e-9)
+        # DOA(방향)만 사용하여 steering 생성 - 거리 정보는 미포함
+        # MUSIC이 raw_signals에서 TDOA를 직접 추정하도록 함 (AI와 공정한 조건)
+        steering = np.exp(-1j * 2 * np.pi * MUSIC_F0 / SOUND_SPEED_CM_S * (sensors @ direction))
         X = np.outer(steering, s)
         noise = noise_std * (np.random.randn(8, MUSIC_N_SNAP) + 1j * np.random.randn(8, MUSIC_N_SNAP))
         raw_signals[i] = X + noise
@@ -169,9 +172,27 @@ def music_doa_estimation_stable(sensors, raw_signals_t):
 
 def localize_music(sensors, estimated_doa, feat_t):
     d0 = feat_t[0]
-    d_all = np.concatenate([[d0], d0 + feat_t[2:9]])
+    d_all = np.concatenate([[d0], d0 + feat_t[2:9]])  # [d0, d1, ..., d7] 8개
     est_dist_cm = np.mean(d_all)
-    return np.mean(sensors, axis=0) + estimated_doa * est_dist_cm
+    sensor_center = np.mean(sensors, axis=0)
+
+    # 두 후보 위치 계산
+    pos1 = sensor_center + estimated_doa * est_dist_cm
+    pos2 = sensor_center - estimated_doa * est_dist_cm
+
+    # TDOA와의 일치도로 180도 ambiguity 해결
+    # pos1의 TDOA 계산 (센서 1~7, 7개)
+    toa1 = np.linalg.norm(sensors - pos1, axis=1) / SOUND_SPEED_CM_S
+    tdoa1 = (toa1[1:] - toa1[0]) * SOUND_SPEED_CM_S  # (7,)
+    error1 = np.mean(np.abs(tdoa1 - feat_t[2:9]))     # (7,) vs (7,)
+
+    # pos2의 TDOA 계산 (센서 1~7, 7개)
+    toa2 = np.linalg.norm(sensors - pos2, axis=1) / SOUND_SPEED_CM_S
+    tdoa2 = (toa2[1:] - toa2[0]) * SOUND_SPEED_CM_S  # (7,)
+    error2 = np.mean(np.abs(tdoa2 - feat_t[2:9]))     # (7,) vs (7,)
+
+    # TDOA 오차가 작은 쪽 선택
+    return pos1 if error1 < error2 else pos2
 
 def solve_ls_localization(tdoa_values_cm, sensors):
     s0 = sensors[0].astype(np.float64)
@@ -236,10 +257,10 @@ if __name__ == '__main__':
                 gt_cm, feat_cm, raw_signals = generate_controlled_traj_cm(t_td_std, t_doa, t_dist, t_td_m)
                 for k, m in zip(['Proposed', 'LSTM', 'MLP', 'CNN'], [p_m, l_m, m_m, c_m]):
                     errs_cm[k].append(calculate_rmse(gt_cm, sliding_window_inference_cm(m, sx, sy, feat_cm)))
-                kf_t = []
                 ls_init = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
                 kf = KalmanFilter(ls_init)
-                for t in range(200):
+                kf_t = [ls_init.copy()]  # t=0은 초기 LS값 그대로
+                for t in range(1, 200):
                     ls_pos = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
                     kf_t.append(kf.predict_and_update(ls_pos))
                 errs_cm['KF'].append(calculate_rmse(gt_cm, np.array(kf_t)))
@@ -305,10 +326,10 @@ if __name__ == '__main__':
         m_v = music_doa_estimation_stable(sensors_loc_cm, raw_signals[t])
         music_m_list.append(localize_music(sensors_loc_cm, m_v, feat_cm[t]) / 100.0)
     p_all['MUSIC'] = np.array(music_m_list)
-    kf_vis_traj = []
     ls_init_vis = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
     kf_vis = KalmanFilter(ls_init_vis)
-    for t in range(200):
+    kf_vis_traj = [ls_init_vis.copy() / 100.0]  # t=0은 초기 LS값 그대로
+    for t in range(1, 200):
         ls_pos_vis = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
         kf_vis_traj.append(kf_vis.predict_and_update(ls_pos_vis) / 100.0)
     p_all['KF'] = np.array(kf_vis_traj)
@@ -326,22 +347,14 @@ if __name__ == '__main__':
         plt.ylim(gt_m[:, dims[1]].min() - 100, gt_m[:, dims[1]].max() + 100)
         plt.title(f'{n1}-{n2} Plane Estimation (m)'); plt.grid(True, ls=':', alpha=0.6); plt.legend(); plt.tight_layout()
 
-    # Figure 4A: 거리 분석 - 제안 기법 vs 다른 학습 기법 (MUSIC 제외)
-    plt.figure(40, figsize=(10, 7)); plt.gca().set_xticks(np.arange(0, 601, 100))
+    # Figure 4: 거리 분석 (모든 기법 포함)
+    plt.figure(4, figsize=(10, 7)); plt.gca().set_xticks(np.arange(0, 601, 100))
     plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
-    for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN']:
+    for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN', 'MUSIC']:
         plt.plot(dist_steps/100.0, r_dist[k], label=('1D-CNN' if k=='CNN' else k),
                 color=model_styles[k]['color'], marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=1.5, markevery=10)
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.title("Figure 4A: Distance Error Analysis (Proposed vs Others)"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
-
-    # Figure 4B: MUSIC 성능 분석 (별도 y축 범위)
-    plt.figure(41, figsize=(10, 7)); plt.gca().set_xticks(np.arange(0, 601, 100))
-    plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
-    plt.plot(dist_steps/100.0, r_dist['MUSIC'], label='MUSIC', color=model_styles['MUSIC']['color'],
-            marker=model_styles['MUSIC']['marker'], ls=model_styles['MUSIC']['ls'], lw=1.5, markevery=10)
-    plt.yscale('log'); plt.ylim(0.1, 1000); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.title("Figure 4B: MUSIC Performance Analysis"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
+    plt.title("Figure 4: Distance Error Analysis"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
     # Figure 5: TDOA 바이어스 분석 (모두 포함)
     plt.figure(5, figsize=(10, 7)); td_us = (tdoa_m_steps_cm / SOUND_SPEED_CM_S) * 1000000
@@ -363,37 +376,22 @@ if __name__ == '__main__':
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.title("DOA Validation"); plt.xlabel("DOA Deviation (deg)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
-    # Figure 7A: 3D 궤적 (모든 기법)
-    fig7a = plt.figure(7, figsize=(10, 8)); ax7a = fig7a.add_subplot(111, projection='3d')
-    ax7a.plot(gt_m[:, 0], gt_m[:, 1], gt_m[:, 2], 'k--', label='Ground Truth', lw=2)
-    for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN']:
-        ax7a.plot(p_all[k][:, 0], p_all[k][:, 1], p_all[k][:, 2], label=k, color=model_styles[k]['color'],
+    # Figure 7: 3D 궤적 (모든 기법 포함)
+    fig7 = plt.figure(7, figsize=(10, 8)); ax7 = fig7.add_subplot(111, projection='3d')
+    ax7.plot(gt_m[:, 0], gt_m[:, 1], gt_m[:, 2], 'k--', label='Ground Truth', lw=2)
+    for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN', 'MUSIC']:
+        ax7.plot(p_all[k][:, 0], p_all[k][:, 1], p_all[k][:, 2], label=k, color=model_styles[k]['color'],
                 marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=1.5, markevery=20)
-    ax7a.set_title('Figure 7A: 3D Trajectory (Proposed vs Others)'); ax7a.legend(); plt.tight_layout()
+    ax7.set_title('Figure 7: 3D Trajectory'); ax7.legend(); plt.tight_layout()
 
-    # Figure 7B: MUSIC 3D 궤적만
-    fig7b = plt.figure(71, figsize=(10, 8)); ax7b = fig7b.add_subplot(111, projection='3d')
-    ax7b.plot(gt_m[:, 0], gt_m[:, 1], gt_m[:, 2], 'k--', label='Ground Truth', lw=2)
-    ax7b.plot(p_all['MUSIC'][:, 0], p_all['MUSIC'][:, 1], p_all['MUSIC'][:, 2], label='MUSIC',
-            color=model_styles['MUSIC']['color'], marker=model_styles['MUSIC']['marker'], ls=model_styles['MUSIC']['ls'], lw=1.5, markevery=20)
-    ax7b.set_title('Figure 7B: 3D Trajectory (MUSIC)'); ax7b.legend(); plt.tight_layout()
-
-    # Figure 8A: 거리 100-300m 상세 (MUSIC 제외)
+    # Figure 8: 거리 100-300m 상세 (모든 기법 포함)
     plt.figure(8, figsize=(10, 7)); mask = (dist_steps >= 10000) & (dist_steps <= 30000); steps_sub = dist_steps[mask]/100.0
     plt.gca().set_xticks(np.arange(100, 301, 20)); plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
-    for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN']:
+    for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN', 'MUSIC']:
         plt.plot(steps_sub, np.array(r_dist[k])[mask], label=('1D-CNN' if k=='CNN' else k),
                 color=model_styles[k]['color'], marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=2.0, markevery=2)
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.title("Figure 8A: Distance Error (100~300m, Proposed vs Others)"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
-
-    # Figure 8B: 거리 100-300m MUSIC만
-    plt.figure(81, figsize=(10, 7)); plt.gca().set_xticks(np.arange(100, 301, 20))
-    plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
-    plt.plot(steps_sub, np.array(r_dist['MUSIC'])[mask], label='MUSIC',
-            color=model_styles['MUSIC']['color'], marker=model_styles['MUSIC']['marker'], ls=model_styles['MUSIC']['ls'], lw=2.0, markevery=2)
-    plt.yscale('log'); plt.ylim(0.1, 1000); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.title("Figure 8B: Distance Error (100~300m, MUSIC)"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
+    plt.title("Figure 8: Distance Error (100~300m)"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
     # Figure 9: TDOA 노이즈 Std 분석
     plt.figure(9, figsize=(10, 7)); td_std_us = (tdoa_std_steps_cm / SOUND_SPEED_CM_S) * 1000000
