@@ -172,27 +172,25 @@ def music_doa_estimation_stable(sensors, raw_signals_t):
 
 def localize_music(sensors, estimated_doa, feat_t):
     d0 = feat_t[0]
-    d_all = np.concatenate([[d0], d0 + feat_t[2:9]])  # [d0, d1, ..., d7] 8개
-    est_dist_cm = np.mean(d_all)
+    # LS localization으로 TDOA 기반 위치 추정 (거리 정보 포함)
+    pos_ls = solve_ls_localization(feat_t[2:9], sensors)
     sensor_center = np.mean(sensors, axis=0)
 
-    # 두 후보 위치 계산
-    pos1 = sensor_center + estimated_doa * est_dist_cm
-    pos2 = sensor_center - estimated_doa * est_dist_cm
+    # 두 후보: LS 결과와 180도 flip
+    pos1 = pos_ls
+    direction_to_ls = pos_ls - sensor_center
+    pos2 = sensor_center - direction_to_ls
 
-    # TDOA와의 일치도로 180도 ambiguity 해결
-    # pos1의 TDOA 계산 (센서 1~7, 7개)
-    toa1 = np.linalg.norm(sensors - pos1, axis=1) / SOUND_SPEED_CM_S
-    tdoa1 = (toa1[1:] - toa1[0]) * SOUND_SPEED_CM_S  # (7,)
-    error1 = np.mean(np.abs(tdoa1 - feat_t[2:9]))     # (7,) vs (7,)
+    # DOA 기반 ambiguity 해결: estimated_doa와 실제 방향의 일치도 비교
+    dir1 = (pos1 - sensor_center) / (np.linalg.norm(pos1 - sensor_center) + 1e-9)
+    dir2 = (pos2 - sensor_center) / (np.linalg.norm(pos2 - sensor_center) + 1e-9)
 
-    # pos2의 TDOA 계산 (센서 1~7, 7개)
-    toa2 = np.linalg.norm(sensors - pos2, axis=1) / SOUND_SPEED_CM_S
-    tdoa2 = (toa2[1:] - toa2[0]) * SOUND_SPEED_CM_S  # (7,)
-    error2 = np.mean(np.abs(tdoa2 - feat_t[2:9]))     # (7,) vs (7,)
+    # 코사인 유사도로 방향 일치도 계산
+    match1 = np.dot(dir1, estimated_doa)
+    match2 = np.dot(dir2, estimated_doa)
 
-    # TDOA 오차가 작은 쪽 선택
-    return pos1 if error1 < error2 else pos2
+    # DOA와 더 일치하는 위置 선택
+    return pos1 if match1 > match2 else pos2
 
 def solve_ls_localization(tdoa_values_cm, sensors):
     s0 = sensors[0].astype(np.float64)
