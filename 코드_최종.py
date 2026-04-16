@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
 from mpl_toolkits.mplot3d import Axes3D
 
-# Matplotlib ?쒓? ?고듃 ?ㅼ젙
+# Matplotlib 한글 폰트 설정
 plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
 
@@ -18,7 +18,7 @@ INPUT_DIM, OUTPUT_DIM = 25, 3
 SOUND_SPEED_CM_S = 150000.0
 
 # ==============================================================================
-# 1. 紐⑤뜽 ?꾪궎?띿쿂 ?뺤쓽
+# 1. 모델 아키텍처 정의
 # ==============================================================================
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=20):
@@ -80,7 +80,7 @@ class KalmanFilter:
         self.F = np.eye(6); self.F[0,3]=self.F[1,4]=self.F[2,5]=1.0
         self.H = np.zeros((3, 6)); self.H[0,0]=self.H[1,1]=self.H[2,2]=1.0
         self.P = np.eye(6)*500
-        # Q: 沅ㅼ쟻 ?뱀꽦??留욎텣 怨쇱젙 ?몄씠利?(?꾩튂:?띾룄 = 1:100)
+        # Q: 궤적 특성에 맞춘 과정 잡음 공분산 (위치:속도 = 1:100)
         self.Q = np.diag([100, 100, 100, 10000, 10000, 10000])
         self.R = np.eye(3)*100
     def predict_and_update(self, z):
@@ -90,15 +90,15 @@ class KalmanFilter:
         return self.x[:3]
 
 # ==============================================================================
-# 2. 臾쇰━ 諛??곗씠???앹꽦
+# 2. 물리 기반 데이터 생성
 # ==============================================================================
-MUSIC_F0 = 32000.0          # 以묒떖 二쇳뙆??(Hz)
-MUSIC_N_SNAP = 64           # ?ㅻ깄????
-MUSIC_AZ_RES = 2            # azimuth ?먯깋 ?댁긽??(deg)
-MUSIC_EL_RES = 2            # elevation ?먯깋 ?댁긽??(deg)
-MUSIC_SNR_LINEAR = 316.0     # SNR=25dB (?믪? SNR?쇰줈 ?깅뒫 媛쒖꽑)
+MUSIC_F0 = 32000.0          # 중심 주파수 (Hz)
+MUSIC_N_SNAP = 64           # 스냅샷 수
+MUSIC_AZ_RES = 2            # azimuth 탐색 해상도 (deg)
+MUSIC_EL_RES = 2            # elevation 탐색 해상도 (deg)
+MUSIC_SNR_LINEAR = 316.0     # SNR=25dB
 
-# ?먯깋 寃⑹옄 ?ъ쟾 怨꾩궛
+# 탐색 격자 사전 계산
 _AZ_NP = np.radians(np.arange(-180, 180, MUSIC_AZ_RES))
 _EL_NP = np.radians(np.arange(-90,  90,  MUSIC_EL_RES))
 _AZ_GRID, _EL_GRID = np.meshgrid(_AZ_NP, _EL_NP)
@@ -137,8 +137,8 @@ def generate_controlled_traj_cm(td_noise_cm, doa_noise_deg, target_dist_cm=None,
                                    np.arctan2(dp[:,2], np.sqrt(dp[:,0]**2 + dp[:,1]**2)+1e-9) + np.random.normal(0, doa_std, 8)])
         s = np.exp(1j * np.random.uniform(0, 2 * np.pi, MUSIC_N_SNAP))
         direction = (p - np.mean(sensors, axis=0)) / (np.linalg.norm(p - np.mean(sensors, axis=0)) + 1e-9)
-        # DOA(諛⑺뼢)留??ъ슜?섏뿬 steering ?앹꽦 - 嫄곕━ ?뺣낫??誘명룷??
-        # MUSIC??raw_signals?먯꽌 TDOA瑜?吏곸젒 異붿젙?섎룄濡???(AI? 怨듭젙??議곌굔)
+        # DOA(방향)만 사용해 steering vector 생성
+        # raw_signals는 MUSIC의 방향 추정용 입력으로만 사용
         steering = np.exp(-1j * 2 * np.pi * MUSIC_F0 / SOUND_SPEED_CM_S * (sensors @ direction))
         X = np.outer(steering, s)
         noise = noise_std * (np.random.randn(8, MUSIC_N_SNAP) + 1j * np.random.randn(8, MUSIC_N_SNAP))
@@ -204,7 +204,7 @@ def calculate_rmse(gt, pred, dims=[0, 1, 2]):
     return np.sqrt(np.mean(np.sum((gt[:, dims] - pred[:, dims])**2, axis=1)))
 
 # ==============================================================================
-# 3. 硫붿씤 遺꾩꽍遺
+# 3. 메인 분석부
 # ==============================================================================
 if __name__ == '__main__':
     model_styles = {
@@ -223,7 +223,9 @@ if __name__ == '__main__':
         l_m = LSTMModel(25, 3, 256, 3, 0.3).to(DEVICE); l_m.load_state_dict(torch.load(CONFIG['lstm_path'], map_location=DEVICE))
         m_m = MLPModel(25, 3, 20, 1024, 0.3).to(DEVICE); m_m.load_state_dict(torch.load(CONFIG['mlp_path'], map_location=DEVICE))
         c_m = CNN1DModel(25, 3, 0.3).to(DEVICE); c_m.load_state_dict(torch.load(CONFIG['cnn_path'], map_location=DEVICE))
-    except: print("紐⑤뜽 ?뚯씪 ?뺤씤 ?꾩슂"); sys.exit()
+    except:
+        print("모델 파일 경로를 확인해주세요.")
+        sys.exit()
 
     ITER, sensors_loc_cm = 1000, get_sensors_cm()
 
@@ -242,7 +244,7 @@ if __name__ == '__main__':
                     errs_cm[k].append(calculate_rmse(gt_cm, sliding_window_inference_cm(m, sx, sy, feat_cm)))
                 ls_init = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
                 kf = KalmanFilter(ls_init)
-                kf_t = [ls_init.copy()]  # t=0? 珥덇린 LS媛?洹몃?濡?
+                kf_t = [ls_init.copy()]  # t=0은 초기 LS 값을 그대로 사용
                 for t in range(1, 200):
                     ls_pos = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
                     kf_t.append(kf.predict_and_update(ls_pos))
@@ -253,10 +255,10 @@ if __name__ == '__main__':
                     p_mus.append(localize_music(sensors_loc_cm, m_vec, feat_cm[t]))
                 errs_cm['MUSIC'].append(calculate_rmse(gt_cm, np.array(p_mus)))
             for k in res.keys(): res[k].append(np.mean(errs_cm[k]) / 100.0)
-            sys.stdout.write(f'\r{type} 遺꾩꽍... ({i+1}/{len(steps)})'); sys.stdout.flush()
+            sys.stdout.write(f'\r{type} 분석 중... ({i+1}/{len(steps)})'); sys.stdout.flush()
         return res
 
-    # 遺꾩꽍 ?ㅽ뀦 ?ㅼ젙
+    # 분석 스텝 설정
     dist_steps        = np.linspace(0, 60000, 61)
     tdoa_m_steps_cm   = np.linspace(0, 15, 101)
     tdoa_std_steps_cm = np.linspace(0, 15, 101)
@@ -268,9 +270,9 @@ if __name__ == '__main__':
     r_doa      = run_full_comparison(doa_steps,         'doa')
 
     # ==============================================================================
-    # 4. ?곕???寃곌낵 異쒕젰
+    # 4. 요약 결과 출력
     # ==============================================================================
-    print(f"\n\n{'='*175}\n [ 醫낇빀 RMSE 鍮꾧탳 ?붿빟: 嫄곕━蹂?(m) ]\n{'='*175}")
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: 거리별(m) ]\n{'='*175}")
     print(f"{'Dist(m)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(dist_steps)):
@@ -278,21 +280,21 @@ if __name__ == '__main__':
         if val % 10 == 0:
             print(f"{val:>8} | {r_dist['Proposed'][i]:<16.4f} | {r_dist['MUSIC'][i]:<16.4f} | {r_dist['LSTM'][i]:<16.4f} | {r_dist['MLP'][i]:<16.4f} | {r_dist['KF'][i]:<16.4f} | {r_dist['CNN'][i]:.4f}")
 
-    print(f"\n\n{'='*175}\n [ 醫낇빀 RMSE 鍮꾧탳 ?붿빟: TDOA ?됯퇏 諛붿씠?댁뒪蹂?(us) ]\n{'='*175}")
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 평균 바이어스별(us) ]\n{'='*175}")
     print(f"{'Bias(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(tdoa_m_steps_cm)):
         s_str = f"{round(i*1.0):>8}"
         print(f"{s_str} | {r_tdoa['Proposed'][i]:<16.4f} | {r_tdoa['MUSIC'][i]:<16.4f} | {r_tdoa['LSTM'][i]:<16.4f} | {r_tdoa['MLP'][i]:<16.4f} | {r_tdoa['KF'][i]:<16.4f} | {r_tdoa['CNN'][i]:.4f}")
 
-    print(f"\n\n{'='*175}\n [ 醫낇빀 RMSE 鍮꾧탳 ?붿빟: TDOA ?몄씠利?Std蹂?(us) ]\n{'='*175}")
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 노이즈 표준편차별(us) ]\n{'='*175}")
     print(f"{'Std(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(tdoa_std_steps_cm)):
         s_str = f"{round(i*1.0):>8}"
         print(f"{s_str} | {r_tdoa_std['Proposed'][i]:<16.4f} | {r_tdoa_std['MUSIC'][i]:<16.4f} | {r_tdoa_std['LSTM'][i]:<16.4f} | {r_tdoa_std['MLP'][i]:<16.4f} | {r_tdoa_std['KF'][i]:<16.4f} | {r_tdoa_std['CNN'][i]:.4f}")
 
-    print(f"\n\n{'='*175}\n [ 醫낇빀 RMSE 鍮꾧탳 ?붿빟: DOA 寃利앸퀎 (deg) ]\n{'='*175}")
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: DOA 오차별(deg) ]\n{'='*175}")
     print(f"{'DOA(deg)':<10} | {'Prop':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(doa_steps)):
@@ -300,7 +302,7 @@ if __name__ == '__main__':
         print(f"{s_str} | {r_doa['Proposed'][i]:<16.4f} | {r_doa['LSTM'][i]:<16.4f} | {r_doa['MLP'][i]:<16.4f} | {r_doa['KF'][i]:<16.4f} | {r_doa['CNN'][i]:.4f}")
 
     # ==============================================================================
-    # 5. 紐⑤뱺 Figure ?쒓컖??(媛쒖꽑??踰꾩쟾)
+    # 5. Figure 시각화
     # ==============================================================================
     gt_cm, feat_cm, raw_signals = generate_controlled_traj_cm(7.5, 0.5, target_dist_cm=40000, m_bias_cm=7.5)
     p_all = {k: sliding_window_inference_cm(m, sx, sy, feat_cm)/100.0 for k, m in zip(['Proposed', 'CNN', 'LSTM', 'MLP'], [p_m, c_m, l_m, m_m])}
@@ -311,13 +313,13 @@ if __name__ == '__main__':
     p_all['MUSIC'] = np.array(music_m_list)
     ls_init_vis = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
     kf_vis = KalmanFilter(ls_init_vis)
-    kf_vis_traj = [ls_init_vis.copy() / 100.0]  # t=0? 珥덇린 LS媛?洹몃?濡?
+    kf_vis_traj = [ls_init_vis.copy() / 100.0]  # t=0은 초기 LS 값을 그대로 사용
     for t in range(1, 200):
         ls_pos_vis = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
         kf_vis_traj.append(kf_vis.predict_and_update(ls_pos_vis) / 100.0)
     p_all['KF'] = np.array(kf_vis_traj)
 
-    # Figure 1, 2, 3: Plane Estimation (異?踰붿쐞 怨좎젙)
+    # Figure 1, 2, 3: 평면별 추정 결과
     planes = [('X', 'Y', [0, 1], 1), ('X', 'Z', [0, 2], 2), ('Y', 'Z', [1, 2], 3)]
     for n1, n2, dims, fig_n in planes:
         plt.figure(fig_n, figsize=(9, 7))
@@ -325,12 +327,12 @@ if __name__ == '__main__':
         for k in ['Proposed', 'MUSIC', 'LSTM', 'MLP', 'KF', 'CNN']:
             plt.plot(p_all[k][:, dims[0]], p_all[k][:, dims[1]], label=k, color=model_styles[k]['color'],
                     marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=1.5, markevery=15)
-        # 異?踰붿쐞 怨좎젙 (GT 以묒떖 짹100m)
+        # 표시 범위 고정 (GT 기준 여유 100m)
         plt.xlim(gt_m[:, dims[0]].min() - 100, gt_m[:, dims[0]].max() + 100)
         plt.ylim(gt_m[:, dims[1]].min() - 100, gt_m[:, dims[1]].max() + 100)
         plt.title(f'{n1}-{n2} Plane Estimation (m)'); plt.grid(True, ls=':', alpha=0.6); plt.legend(); plt.tight_layout()
 
-    # Figure 4: 嫄곕━ 遺꾩꽍 (紐⑤뱺 湲곕쾿 ?ы븿)
+    # Figure 4: 거리 분석
     plt.figure(4, figsize=(10, 7)); plt.gca().set_xticks(np.arange(0, 601, 100))
     plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
     for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN', 'MUSIC']:
@@ -339,7 +341,7 @@ if __name__ == '__main__':
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.title("Figure 4: Distance Error Analysis"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
-    # Figure 5: TDOA 諛붿씠?댁뒪 遺꾩꽍 (紐⑤몢 ?ы븿)
+    # Figure 5: TDOA 바이어스 분석
     plt.figure(5, figsize=(10, 7)); td_us = (tdoa_m_steps_cm / SOUND_SPEED_CM_S) * 1000000
     plt.gca().set_xticks(np.arange(0, 101, 10))
     plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
@@ -349,7 +351,7 @@ if __name__ == '__main__':
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.title("TDOA Synchronization Error Analysis"); plt.xlabel(r"TDOA Bias ($\mu s$)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
-    # Figure 6: DOA 寃利?(MUSIC ?쒖쇅)
+    # Figure 6: DOA 검증 (MUSIC 제외)
     plt.figure(6, figsize=(10, 7)); plt.gca().set_xticks(doa_steps)
     plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
     for k in model_styles.keys():
@@ -359,7 +361,7 @@ if __name__ == '__main__':
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.title("DOA Validation"); plt.xlabel("DOA Deviation (deg)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
-    # Figure 7: 3D 沅ㅼ쟻 (紐⑤뱺 湲곕쾿 ?ы븿)
+    # Figure 7: 3D 궤적
     fig7 = plt.figure(7, figsize=(10, 8)); ax7 = fig7.add_subplot(111, projection='3d')
     ax7.plot(gt_m[:, 0], gt_m[:, 1], gt_m[:, 2], 'k--', label='Ground Truth', lw=2)
     for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN', 'MUSIC']:
@@ -367,7 +369,7 @@ if __name__ == '__main__':
                 marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=1.5, markevery=20)
     ax7.set_title('Figure 7: 3D Trajectory'); ax7.legend(); plt.tight_layout()
 
-    # Figure 8: 嫄곕━ 100-300m ?곸꽭 (紐⑤뱺 湲곕쾿 ?ы븿)
+    # Figure 8: 거리 100-300m 상세
     plt.figure(8, figsize=(10, 7)); mask = (dist_steps >= 10000) & (dist_steps <= 30000); steps_sub = dist_steps[mask]/100.0
     plt.gca().set_xticks(np.arange(100, 301, 20)); plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
     for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN', 'MUSIC']:
@@ -376,7 +378,7 @@ if __name__ == '__main__':
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.title("Figure 8: Distance Error (100~300m)"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
-    # Figure 9: TDOA ?몄씠利?Std 遺꾩꽍
+    # Figure 9: TDOA 노이즈 표준편차 분석
     plt.figure(9, figsize=(10, 7)); td_std_us = (tdoa_std_steps_cm / SOUND_SPEED_CM_S) * 1000000
     plt.gca().set_xticks(np.arange(0, 101, 10))
     plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
