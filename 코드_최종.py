@@ -107,13 +107,23 @@ _EL_FLAT_NP = _EL_GRID.ravel().astype(np.float64)
 _D_MAT_NP = np.stack([np.cos(_EL_FLAT_NP)*np.cos(_AZ_FLAT_NP),
                        np.cos(_EL_FLAT_NP)*np.sin(_AZ_FLAT_NP),
                        np.sin(_EL_FLAT_NP)], axis=1)
-_D_MAT_GPU = torch.tensor(_D_MAT_NP, dtype=torch.float64, device=DEVICE)
 
 r_cm, L_cm = 3.3, 7.9
 def get_sensors_cm():
     S2 = np.sqrt(2)
     return np.array([[r_cm, 0, 0], [r_cm/S2, r_cm/S2, -L_cm], [0, r_cm, 0], [-r_cm/S2, r_cm/S2, -L_cm],
                      [-r_cm, 0, 0], [-r_cm/S2, -r_cm/S2, -L_cm], [0, -r_cm, 0], [r_cm/S2, -r_cm/S2, -L_cm]], dtype=np.float32)
+
+SENSORS_CM = get_sensors_cm()
+SENSOR_CENTER_CM = np.mean(SENSORS_CM, axis=0)
+SENSORS_M_GPU = torch.tensor(SENSORS_CM.astype(np.float64) / 100.0, dtype=torch.float64, device=DEVICE)
+_D_MAT_GPU = torch.tensor(_D_MAT_NP, dtype=torch.float64, device=DEVICE)
+_MUSIC_LAMBDA_M = (SOUND_SPEED_CM_S / 100.0) / MUSIC_F0
+_MUSIC_PROJ_GPU = _D_MAT_GPU @ SENSORS_M_GPU.T
+_MUSIC_STEERING_GPU = torch.exp(-1j * 2 * math.pi * _MUSIC_PROJ_GPU / _MUSIC_LAMBDA_M).to(torch.complex128)
+_MUSIC_STEERING_GPU = _MUSIC_STEERING_GPU / (torch.linalg.norm(_MUSIC_STEERING_GPU, dim=1, keepdim=True) + 1e-12)
+_SW_COUNTS = np.minimum(np.arange(1, 201), WINDOW_SIZE)
+_SW_COUNTS = np.minimum(_SW_COUNTS, _SW_COUNTS[::-1]).astype(np.float32).reshape(-1, 1)
 
 def generate_controlled_traj_cm(td_noise_cm, doa_noise_deg, target_dist_cm=None, m_bias_cm=0.0):
     sensors = get_sensors_cm(); traj = np.zeros((200, 3), dtype=np.float32)
@@ -153,12 +163,13 @@ def music_doa_estimation_stable(sensors, raw_signals_t):
     idx = torch.argsort(eigenvalues, descending=True)
     eigenvectors = eigenvectors[:, idx]
     En = eigenvectors[:, n_signals:]
-    sensors_m = torch.tensor(sensors.astype(np.float64) / 100.0, dtype=torch.float64, device=DEVICE)
-    lam = (SOUND_SPEED_CM_S / 100.0) / MUSIC_F0
-    proj = _D_MAT_GPU @ sensors_m.T
-    A = torch.exp(-1j * 2 * math.pi * proj / lam).to(torch.complex128)
-    norms = torch.linalg.norm(A, dim=1, keepdim=True)
-    A = A / (norms + 1e-12)
+    if np.array_equal(sensors, SENSORS_CM):
+        A = _MUSIC_STEERING_GPU
+    else:
+        sensors_m = torch.tensor(sensors.astype(np.float64) / 100.0, dtype=torch.float64, device=DEVICE)
+        proj = _D_MAT_GPU @ sensors_m.T
+        A = torch.exp(-1j * 2 * math.pi * proj / _MUSIC_LAMBDA_M).to(torch.complex128)
+        A = A / (torch.linalg.norm(A, dim=1, keepdim=True) + 1e-12)
     En_A = A @ En
     denom = torch.sum(torch.real(En_A * En_A.conj()), dim=1)
     power = 1.0 / (denom + 1e-12)
@@ -170,12 +181,38 @@ def music_doa_estimation_stable(sensors, raw_signals_t):
                         np.sin(best_el)], dtype=np.float64)
     return est_vec / (np.linalg.norm(est_vec) + 1e-9)
 
+def compute_tdoa_feature_from_pos(pos_cm, sensors):
+    dists = np.linalg.norm(sensors.astype(np.float64) - pos_cm.astype(np.float64), axis=1)
+    return dists - dists[0]
+
 def localize_music(sensors, estimated_doa, feat_t):
-    pos_ls = solve_ls_localization(feat_t[2:9], sensors)
-    sensor_center = np.mean(sensors, axis=0)
-    ls_radius = np.linalg.norm(pos_ls - sensor_center)
+    sensor_center = SENSOR_CENTER_CM if np.array_equal(sensors, SENSORS_CM) else np.mean(sensors, axis=0)
+    ref_sensor = sensors[0].astype(np.float64)
+    music_range_cm = max(float(feat_t[0]), 0.0)
     doa_unit = estimated_doa / (np.linalg.norm(estimated_doa) + 1e-9)
-    return sensor_center + doa_unit * ls_radius
+
+    candidates = [
+        sensor_center + doa_unit * music_range_cm,
+        sensor_center - doa_unit * music_range_cm,
+        ref_sensor + doa_unit * music_range_cm,
+        ref_sensor - doa_unit * music_range_cm,
+    ]
+
+    meas_tdoa = feat_t[1:9].astype(np.float64)
+    best_pos = candidates[0]
+    best_cost = np.inf
+
+    for cand in candidates:
+        pred_tdoa = compute_tdoa_feature_from_pos(cand, sensors)
+        tdoa_cost = np.mean((pred_tdoa - meas_tdoa) ** 2)
+        range0_cost = (np.linalg.norm(cand - ref_sensor) - music_range_cm) ** 2
+        center_cost = (np.linalg.norm(cand - sensor_center) - music_range_cm) ** 2
+        cost = tdoa_cost + 0.1 * min(range0_cost, center_cost)
+        if cost < best_cost:
+            best_cost = cost
+            best_pos = cand
+
+    return best_pos
 
 def solve_ls_localization(tdoa_values_cm, sensors):
     s0 = sensors[0].astype(np.float64)
@@ -192,16 +229,25 @@ def solve_ls_localization(tdoa_values_cm, sensors):
     return result[:3]
 
 def sliding_window_inference_cm(model, sx, sy, x_raw_cm):
-    model.eval(); x_scaled = sx.transform(x_raw_cm)
-    windows = torch.FloatTensor(np.array([x_scaled[i:i+WINDOW_SIZE, :] for i in range(200 - WINDOW_SIZE + 1)])).to(DEVICE)
-    final, counts = np.zeros((200, 3)), np.zeros((200, 1))
+    model.eval(); x_scaled = sx.transform(x_raw_cm).astype(np.float32, copy=False)
+    windows = np.lib.stride_tricks.sliding_window_view(x_scaled, window_shape=WINDOW_SIZE, axis=0)
+    windows = np.swapaxes(windows, 1, 2)
+    windows = torch.from_numpy(np.ascontiguousarray(windows)).to(DEVICE)
+    final = np.zeros((200, 3), dtype=np.float32)
     with torch.no_grad():
         preds = model(windows).cpu().numpy()
-        for i in range(len(preds)): final[i:i+WINDOW_SIZE, :] += preds[i]; counts[i:i+WINDOW_SIZE, :] += 1
-    return sy.inverse_transform(final / (counts + 1e-9))
+        for i in range(len(preds)): final[i:i+WINDOW_SIZE, :] += preds[i]
+    return sy.inverse_transform(final / (_SW_COUNTS + 1e-9))
 
 def calculate_rmse(gt, pred, dims=[0, 1, 2]):
     return np.sqrt(np.mean(np.sum((gt[:, dims] - pred[:, dims])**2, axis=1)))
+
+def get_axis_limits_from_tracks(tracks, dim, padding_ratio=0.08, min_padding=5.0):
+    values = np.concatenate([track[:, dim] for track in tracks])
+    vmin, vmax = float(np.min(values)), float(np.max(values))
+    span = vmax - vmin
+    pad = max(span * padding_ratio, min_padding)
+    return vmin - pad, vmax + pad
 
 # ==============================================================================
 # 3. 메인 분석부
@@ -227,7 +273,7 @@ if __name__ == '__main__':
         print("모델 파일 경로를 확인해주세요.")
         sys.exit()
 
-    ITER, sensors_loc_cm = 1000, get_sensors_cm()
+    ITER, sensors_loc_cm = 1000, SENSORS_CM
 
     def run_full_comparison(steps, type='dist'):
         res = {k: [] for k in model_styles.keys()}
@@ -318,6 +364,7 @@ if __name__ == '__main__':
         ls_pos_vis = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
         kf_vis_traj.append(kf_vis.predict_and_update(ls_pos_vis) / 100.0)
     p_all['KF'] = np.array(kf_vis_traj)
+    viz_tracks = [gt_m] + [p_all[k] for k in ['Proposed', 'MUSIC', 'LSTM', 'MLP', 'KF', 'CNN']]
 
     # Figure 1, 2, 3: 평면별 추정 결과
     planes = [('X', 'Y', [0, 1], 1), ('X', 'Z', [0, 2], 2), ('Y', 'Z', [1, 2], 3)]
@@ -327,9 +374,10 @@ if __name__ == '__main__':
         for k in ['Proposed', 'MUSIC', 'LSTM', 'MLP', 'KF', 'CNN']:
             plt.plot(p_all[k][:, dims[0]], p_all[k][:, dims[1]], label=k, color=model_styles[k]['color'],
                     marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=1.5, markevery=15)
-        # 표시 범위 고정 (GT 기준 여유 100m)
-        plt.xlim(gt_m[:, dims[0]].min() - 100, gt_m[:, dims[0]].max() + 100)
-        plt.ylim(gt_m[:, dims[1]].min() - 100, gt_m[:, dims[1]].max() + 100)
+        xlim = get_axis_limits_from_tracks(viz_tracks, dims[0], padding_ratio=0.06, min_padding=10.0)
+        ylim = get_axis_limits_from_tracks(viz_tracks, dims[1], padding_ratio=0.06, min_padding=10.0)
+        plt.xlim(*xlim)
+        plt.ylim(*ylim)
         plt.title(f'{n1}-{n2} Plane Estimation (m)'); plt.grid(True, ls=':', alpha=0.6); plt.legend(); plt.tight_layout()
 
     # Figure 4: 거리 분석
@@ -367,6 +415,9 @@ if __name__ == '__main__':
     for k in ['Proposed', 'LSTM', 'MLP', 'KF', 'CNN', 'MUSIC']:
         ax7.plot(p_all[k][:, 0], p_all[k][:, 1], p_all[k][:, 2], label=k, color=model_styles[k]['color'],
                 marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=1.5, markevery=20)
+    ax7.set_xlim(*get_axis_limits_from_tracks(viz_tracks, 0, padding_ratio=0.06, min_padding=10.0))
+    ax7.set_ylim(*get_axis_limits_from_tracks(viz_tracks, 1, padding_ratio=0.06, min_padding=10.0))
+    ax7.set_zlim(*get_axis_limits_from_tracks(viz_tracks, 2, padding_ratio=0.06, min_padding=5.0))
     ax7.set_title('Figure 7: 3D Trajectory'); ax7.legend(); plt.tight_layout()
 
     # Figure 8: 거리 100-300m 상세
