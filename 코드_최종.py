@@ -185,7 +185,7 @@ def compute_tdoa_feature_from_pos(pos_cm, sensors):
     dists = np.linalg.norm(sensors.astype(np.float64) - pos_cm.astype(np.float64), axis=1)
     return dists - dists[0]
 
-def localize_music(sensors, estimated_doa, feat_t):
+def localize_music(sensors, estimated_doa, feat_t, prev_pos_cm=None):
     sensor_center = SENSOR_CENTER_CM if np.array_equal(sensors, SENSORS_CM) else np.mean(sensors, axis=0)
     ref_sensor = sensors[0].astype(np.float64)
     music_range_cm = max(float(feat_t[0]), 0.0)
@@ -208,6 +208,19 @@ def localize_music(sensors, estimated_doa, feat_t):
         range0_cost = (np.linalg.norm(cand - ref_sensor) - music_range_cm) ** 2
         center_cost = (np.linalg.norm(cand - sensor_center) - music_range_cm) ** 2
         cost = tdoa_cost + 0.1 * min(range0_cost, center_cost)
+
+        # 180도 방향 ambiguity를 줄이기 위해 이전 시점과의 연속성을 사용한다.
+        if prev_pos_cm is not None:
+            step_jump_cost = (np.linalg.norm(cand - prev_pos_cm.astype(np.float64)) / 100.0) ** 2
+            prev_dir = prev_pos_cm.astype(np.float64) - sensor_center
+            prev_dir_norm = np.linalg.norm(prev_dir)
+            if prev_dir_norm > 1e-9:
+                prev_dir_unit = prev_dir / prev_dir_norm
+                align_cost = 1.0 - np.dot(doa_unit, prev_dir_unit if np.dot(cand - sensor_center, doa_unit) >= 0 else -prev_dir_unit)
+            else:
+                align_cost = 0.0
+            cost += 0.25 * step_jump_cost + 25.0 * align_cost
+
         if cost < best_cost:
             best_cost = cost
             best_pos = cand
@@ -298,7 +311,8 @@ if __name__ == '__main__':
                 p_mus = []
                 for t in range(200):
                     m_vec = music_doa_estimation_stable(sensors_loc_cm, raw_signals[t])
-                    p_mus.append(localize_music(sensors_loc_cm, m_vec, feat_cm[t]))
+                    prev_pos = None if t == 0 else p_mus[-1]
+                    p_mus.append(localize_music(sensors_loc_cm, m_vec, feat_cm[t], prev_pos))
                 errs_cm['MUSIC'].append(calculate_rmse(gt_cm, np.array(p_mus)))
             for k in res.keys(): res[k].append(np.mean(errs_cm[k]) / 100.0)
             sys.stdout.write(f'\r{type} 분석 중... ({i+1}/{len(steps)})'); sys.stdout.flush()
@@ -355,7 +369,8 @@ if __name__ == '__main__':
     gt_m, music_m_list = gt_cm/100.0, []
     for t in range(200):
         m_v = music_doa_estimation_stable(sensors_loc_cm, raw_signals[t])
-        music_m_list.append(localize_music(sensors_loc_cm, m_v, feat_cm[t]) / 100.0)
+        prev_pos = None if t == 0 else music_m_list[-1] * 100.0
+        music_m_list.append(localize_music(sensors_loc_cm, m_v, feat_cm[t], prev_pos) / 100.0)
     p_all['MUSIC'] = np.array(music_m_list)
     ls_init_vis = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
     kf_vis = KalmanFilter(ls_init_vis)
