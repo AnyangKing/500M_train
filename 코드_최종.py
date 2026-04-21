@@ -188,42 +188,53 @@ def compute_tdoa_feature_from_pos(pos_cm, sensors):
 def localize_music(sensors, estimated_doa, feat_t, prev_pos_cm=None):
     sensor_center = SENSOR_CENTER_CM if np.array_equal(sensors, SENSORS_CM) else np.mean(sensors, axis=0)
     ref_sensor = sensors[0].astype(np.float64)
-    music_range_cm = max(float(feat_t[0]), 0.0)
+    music_range_cm = max(float(feat_t[0]), 1.0)
     doa_unit = estimated_doa / (np.linalg.norm(estimated_doa) + 1e-9)
-
-    candidates = [
-        sensor_center + doa_unit * music_range_cm,
-        sensor_center - doa_unit * music_range_cm,
-        ref_sensor + doa_unit * music_range_cm,
-        ref_sensor - doa_unit * music_range_cm,
-    ]
-
     meas_tdoa = feat_t[1:9].astype(np.float64)
-    best_pos = candidates[0]
+    range_scales = np.array([0.75, 0.85, 0.95, 1.00, 1.05, 1.15, 1.25], dtype=np.float64)
+    if prev_pos_cm is not None:
+        prev_pos_cm = prev_pos_cm.astype(np.float64)
+        prev_radius = np.linalg.norm(prev_pos_cm - sensor_center)
+        if prev_radius > 1e-6:
+            low = min(music_range_cm, prev_radius)
+            high = max(music_range_cm, prev_radius)
+            bridge = np.linspace(low, high, 5, dtype=np.float64)
+            range_candidates = np.unique(np.concatenate([music_range_cm * range_scales, bridge]))
+        else:
+            range_candidates = music_range_cm * range_scales
+    else:
+        range_candidates = music_range_cm * range_scales
+
+    best_pos = sensor_center + doa_unit * music_range_cm
     best_cost = np.inf
 
-    for cand in candidates:
-        pred_tdoa = compute_tdoa_feature_from_pos(cand, sensors)
-        tdoa_cost = np.mean((pred_tdoa - meas_tdoa) ** 2)
-        range0_cost = (np.linalg.norm(cand - ref_sensor) - music_range_cm) ** 2
-        center_cost = (np.linalg.norm(cand - sensor_center) - music_range_cm) ** 2
-        cost = tdoa_cost + 0.1 * min(range0_cost, center_cost)
+    for sign in (1.0, -1.0):
+        signed_doa = sign * doa_unit
+        for anchor in (sensor_center, ref_sensor):
+            for radius_cm in range_candidates:
+                cand = anchor + signed_doa * radius_cm
+                pred_tdoa = compute_tdoa_feature_from_pos(cand, sensors)
+                tdoa_cost = np.mean((pred_tdoa - meas_tdoa) ** 2)
+                range0_cost = (np.linalg.norm(cand - ref_sensor) - music_range_cm) ** 2
+                center_cost = (np.linalg.norm(cand - sensor_center) - music_range_cm) ** 2
+                anchor_cost = min(range0_cost, center_cost)
+                cost = tdoa_cost + 0.05 * anchor_cost
 
-        # 180도 방향 ambiguity를 줄이기 위해 이전 시점과의 연속성을 사용한다.
-        if prev_pos_cm is not None:
-            step_jump_cost = (np.linalg.norm(cand - prev_pos_cm.astype(np.float64)) / 100.0) ** 2
-            prev_dir = prev_pos_cm.astype(np.float64) - sensor_center
-            prev_dir_norm = np.linalg.norm(prev_dir)
-            if prev_dir_norm > 1e-9:
-                prev_dir_unit = prev_dir / prev_dir_norm
-                align_cost = 1.0 - np.dot(doa_unit, prev_dir_unit if np.dot(cand - sensor_center, doa_unit) >= 0 else -prev_dir_unit)
-            else:
-                align_cost = 0.0
-            cost += 0.25 * step_jump_cost + 25.0 * align_cost
+                # 180도 방향 ambiguity를 줄이기 위해 이전 시점과의 연속성을 사용한다.
+                if prev_pos_cm is not None:
+                    step_jump_cost = (np.linalg.norm(cand - prev_pos_cm) / 100.0) ** 2
+                    prev_dir = prev_pos_cm - sensor_center
+                    prev_dir_norm = np.linalg.norm(prev_dir)
+                    if prev_dir_norm > 1e-9:
+                        prev_dir_unit = prev_dir / prev_dir_norm
+                        align_cost = 1.0 - np.dot(signed_doa, prev_dir_unit)
+                    else:
+                        align_cost = 0.0
+                    cost += 0.20 * step_jump_cost + 10.0 * align_cost
 
-        if cost < best_cost:
-            best_cost = cost
-            best_pos = cand
+                if cost < best_cost:
+                    best_cost = cost
+                    best_pos = cand
 
     return best_pos
 
