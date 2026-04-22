@@ -185,31 +185,47 @@ def compute_tdoa_feature_from_pos(pos_cm, sensors):
     dists = np.linalg.norm(sensors.astype(np.float64) - pos_cm.astype(np.float64), axis=1)
     return dists - dists[0]
 
-def localize_music(sensors, estimated_doa, feat_t, prev_pos_cm=None):
+def observed_doa_from_feature(feat_t):
+    az = feat_t[9:17].astype(np.float64)
+    el = feat_t[17:25].astype(np.float64)
+    dirs = np.stack([
+        np.cos(el) * np.cos(az),
+        np.cos(el) * np.sin(az),
+        np.sin(el)
+    ], axis=1)
+    obs_vec = np.mean(dirs, axis=0)
+    obs_norm = np.linalg.norm(obs_vec)
+    if obs_norm < 1e-9:
+        return None
+    return obs_vec / obs_norm
+
+def _music_branch_candidates(sensors, estimated_doa, feat_t, prev_pos_cm=None):
     sensor_center = SENSOR_CENTER_CM if np.array_equal(sensors, SENSORS_CM) else np.mean(sensors, axis=0)
     ref_sensor = sensors[0].astype(np.float64)
     music_range_cm = max(float(feat_t[0]), 1.0)
     doa_unit = estimated_doa / (np.linalg.norm(estimated_doa) + 1e-9)
+    obs_doa = observed_doa_from_feature(feat_t)
+    if obs_doa is not None and np.dot(doa_unit, obs_doa) < 0.0:
+        doa_unit = -doa_unit
     meas_tdoa = feat_t[1:9].astype(np.float64)
-    range_scales = np.array([0.75, 0.85, 0.95, 1.00, 1.05, 1.15, 1.25], dtype=np.float64)
+    range_scales = np.array([0.98, 0.99, 1.00, 1.01, 1.02], dtype=np.float64)
     if prev_pos_cm is not None:
         prev_pos_cm = prev_pos_cm.astype(np.float64)
         prev_radius = np.linalg.norm(prev_pos_cm - sensor_center)
-        if prev_radius > 1e-6:
-            low = min(music_range_cm, prev_radius)
-            high = max(music_range_cm, prev_radius)
-            bridge = np.linspace(low, high, 5, dtype=np.float64)
-            range_candidates = np.unique(np.concatenate([music_range_cm * range_scales, bridge]))
+        if prev_radius > 1e-6 and abs(prev_radius - music_range_cm) / music_range_cm < 0.08:
+            range_candidates = np.unique(np.concatenate([music_range_cm * range_scales, [prev_radius]]))
         else:
             range_candidates = music_range_cm * range_scales
     else:
         range_candidates = music_range_cm * range_scales
 
-    best_pos = sensor_center + doa_unit * music_range_cm
-    best_cost = np.inf
+    best_by_sign = {}
 
     for sign in (1.0, -1.0):
         signed_doa = sign * doa_unit
+        best_pos = sensor_center + signed_doa * music_range_cm
+        best_total_cost = np.inf
+        best_obs_cost = np.inf
         for anchor in (sensor_center, ref_sensor):
             for radius_cm in range_candidates:
                 cand = anchor + signed_doa * radius_cm
@@ -218,11 +234,16 @@ def localize_music(sensors, estimated_doa, feat_t, prev_pos_cm=None):
                 range0_cost = (np.linalg.norm(cand - ref_sensor) - music_range_cm) ** 2
                 center_cost = (np.linalg.norm(cand - sensor_center) - music_range_cm) ** 2
                 anchor_cost = min(range0_cost, center_cost)
-                cost = tdoa_cost + 0.05 * anchor_cost
+                doa_obs_cost = 0.0 if obs_doa is None else 1.0 - np.dot(signed_doa, obs_doa)
+                obs_cost = tdoa_cost + 0.05 * anchor_cost + 5000.0 * doa_obs_cost
+                cost = obs_cost
 
                 # 180도 방향 ambiguity를 줄이기 위해 이전 시점과의 연속성을 사용한다.
                 if prev_pos_cm is not None:
-                    step_jump_cost = (np.linalg.norm(cand - prev_pos_cm) / 100.0) ** 2
+                    step_jump_cm = np.linalg.norm(cand - prev_pos_cm)
+                    max_step_cm = max(3000.0, 0.06 * music_range_cm)
+                    hard_step_cm = max(9000.0, 0.18 * music_range_cm)
+                    step_jump_cost = (step_jump_cm / 100.0) ** 2
                     prev_dir = prev_pos_cm - sensor_center
                     prev_dir_norm = np.linalg.norm(prev_dir)
                     if prev_dir_norm > 1e-9:
@@ -230,13 +251,71 @@ def localize_music(sensors, estimated_doa, feat_t, prev_pos_cm=None):
                         align_cost = 1.0 - np.dot(signed_doa, prev_dir_unit)
                     else:
                         align_cost = 0.0
-                    cost += 0.20 * step_jump_cost + 10.0 * align_cost
+                    excess_jump_cost = max(0.0, (step_jump_cm - max_step_cm) / 100.0) ** 2
+                    hard_jump_cost = max(0.0, (step_jump_cm - hard_step_cm) / 100.0) ** 4
+                    cost += 0.20 * step_jump_cost + 8.0 * align_cost + 2.0 * excess_jump_cost + 20.0 * hard_jump_cost
 
-                if cost < best_cost:
-                    best_cost = cost
+                if cost < best_total_cost:
+                    best_total_cost = cost
+                    best_obs_cost = obs_cost
                     best_pos = cand
 
-    return best_pos
+        best_by_sign[sign] = {
+            "pos": best_pos,
+            "total_cost": best_total_cost,
+            "obs_cost": best_obs_cost,
+        }
+
+    return best_by_sign
+
+def localize_music(sensors, estimated_doa, feat_t, prev_pos_cm=None):
+    candidates = _music_branch_candidates(sensors, estimated_doa, feat_t, prev_pos_cm)
+    best_sign = min(candidates.keys(), key=lambda s: candidates[s]["total_cost"])
+    return candidates[best_sign]["pos"]
+
+class MusicLocalizer:
+    def __init__(self, sensors, history_len=5, switch_margin=0.85):
+        self.sensors = sensors
+        self.prev_pos_cm = None
+        self.branch_sign = None
+        self.history_len = history_len
+        self.switch_margin = switch_margin
+        self.obs_history = {1.0: [], -1.0: []}
+
+    def _push_obs_cost(self, sign, value):
+        history = self.obs_history[sign]
+        history.append(float(value))
+        if len(history) > self.history_len:
+            history.pop(0)
+
+    def _rolling_obs_cost(self, sign):
+        history = self.obs_history[sign]
+        if not history:
+            return np.inf
+        return float(np.mean(history))
+
+    def update(self, estimated_doa, feat_t):
+        candidates = _music_branch_candidates(self.sensors, estimated_doa, feat_t, self.prev_pos_cm)
+        for sign in (1.0, -1.0):
+            self._push_obs_cost(sign, candidates[sign]["obs_cost"])
+
+        if self.branch_sign is None:
+            self.branch_sign = min(candidates.keys(), key=lambda s: candidates[s]["total_cost"])
+        else:
+            active_sign = self.branch_sign
+            other_sign = -self.branch_sign
+            active_roll = self._rolling_obs_cost(active_sign)
+            other_roll = self._rolling_obs_cost(other_sign)
+            active_total = candidates[active_sign]["total_cost"]
+            other_total = candidates[other_sign]["total_cost"]
+
+            # 최근 관측 cost가 일관적으로 더 낮거나, 현재 total cost가 압도적으로 좋으면 branch를 전환한다.
+            if other_roll < active_roll * self.switch_margin or other_total < active_total * 0.55:
+                self.branch_sign = other_sign
+
+        best_pos = candidates[self.branch_sign]["pos"]
+        self.prev_pos_cm = best_pos
+        return best_pos
 
 def solve_ls_localization(tdoa_values_cm, sensors):
     s0 = sensors[0].astype(np.float64)
@@ -320,10 +399,10 @@ if __name__ == '__main__':
                     kf_t.append(kf.predict_and_update(ls_pos))
                 errs_cm['KF'].append(calculate_rmse(gt_cm, np.array(kf_t)))
                 p_mus = []
+                music_localizer = MusicLocalizer(sensors_loc_cm)
                 for t in range(200):
                     m_vec = music_doa_estimation_stable(sensors_loc_cm, raw_signals[t])
-                    prev_pos = None if t == 0 else p_mus[-1]
-                    p_mus.append(localize_music(sensors_loc_cm, m_vec, feat_cm[t], prev_pos))
+                    p_mus.append(music_localizer.update(m_vec, feat_cm[t]))
                 errs_cm['MUSIC'].append(calculate_rmse(gt_cm, np.array(p_mus)))
             for k in res.keys(): res[k].append(np.mean(errs_cm[k]) / 100.0)
             sys.stdout.write(f'\r{type} 분석 중... ({i+1}/{len(steps)})'); sys.stdout.flush()
@@ -378,10 +457,10 @@ if __name__ == '__main__':
     gt_cm, feat_cm, raw_signals = generate_controlled_traj_cm(7.5, 0.5, target_dist_cm=40000, m_bias_cm=7.5)
     p_all = {k: sliding_window_inference_cm(m, sx, sy, feat_cm)/100.0 for k, m in zip(['Proposed', 'CNN', 'LSTM', 'MLP'], [p_m, c_m, l_m, m_m])}
     gt_m, music_m_list = gt_cm/100.0, []
+    music_localizer_vis = MusicLocalizer(sensors_loc_cm)
     for t in range(200):
         m_v = music_doa_estimation_stable(sensors_loc_cm, raw_signals[t])
-        prev_pos = None if t == 0 else music_m_list[-1] * 100.0
-        music_m_list.append(localize_music(sensors_loc_cm, m_v, feat_cm[t], prev_pos) / 100.0)
+        music_m_list.append(music_localizer_vis.update(m_v, feat_cm[t]) / 100.0)
     p_all['MUSIC'] = np.array(music_m_list)
     ls_init_vis = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
     kf_vis = KalmanFilter(ls_init_vis)
