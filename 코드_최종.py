@@ -544,4 +544,9 @@ if __name__ == '__main__':
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.title("TDOA Noise Std Analysis"); plt.xlabel(r"TDOA Noise Std ($\mu s$)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
+    # 논문 제출용 고해상도 Figure 저장 (600 DPI)
+    for fig_n in range(1, 10):
+        plt.figure(fig_n)
+        plt.savefig(f"Figure_{fig_n}.png", dpi=600, bbox_inches="tight")
+
     plt.show()
