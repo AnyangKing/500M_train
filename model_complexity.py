@@ -8,6 +8,8 @@ import math
 import time
 import sys
 import joblib
+import importlib.util
+from pathlib import Path
 
 plt_import = True
 try:
@@ -23,6 +25,17 @@ OUTPUT_DIM = 3
 SOUND_SPEED_CM_S = 150000.0
 WARMUP = 100
 ITER   = 2000   # 추론 시간 측정 반복 횟수
+
+ROOT = Path(__file__).resolve().parent
+FINAL_CODE_PATH = ROOT / "코드_최종.py"
+
+def load_final_code():
+    spec = importlib.util.spec_from_file_location("final_code", FINAL_CODE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+FINAL_CODE = load_final_code()
 
 # ==============================================================================
 # 모델 아키텍처 (코드_최종.py와 동일)
@@ -152,27 +165,9 @@ SENSORS = np.array([
     [0, -r_cm, 0],     [r_cm/S2, -r_cm/S2, -L_cm],
 ], dtype=np.float32)
 
-def music_doa_and_localize(raw_signal_t, feat_t):
-    X = raw_signal_t
-    R = (X @ X.conj().T) / MUSIC_N_SNAP
-    _, eigvec = np.linalg.eigh(R)
-    En = eigvec[:, :7]   # noise subspace (8-1=7)
-    sensors_m = SENSORS.astype(np.float64) / 100.0
-    lam = (SOUND_SPEED_CM_S / 100.0) / MUSIC_F0
-    proj = _D_MAT @ sensors_m.T
-    A = np.exp(-1j * 2 * math.pi * proj / lam)
-    A = A / (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
-    denom = np.sum(np.real((A @ En) * (A @ En).conj()), axis=1)
-    best_idx = int(np.argmax(1.0 / (denom + 1e-12)))
-    doa_vec  = np.array([np.cos(_EL_FLAT[best_idx]) * np.cos(_AZ_FLAT[best_idx]),
-                         np.cos(_EL_FLAT[best_idx]) * np.sin(_AZ_FLAT[best_idx]),
-                         np.sin(_EL_FLAT[best_idx])])
-    pos_ls = solve_ls_localization(feat_t[2:9], SENSORS)
-    sensor_center = np.mean(SENSORS, axis=0)
-    pos2 = sensor_center - (pos_ls - sensor_center)
-    dir1 = (pos_ls - sensor_center) / (np.linalg.norm(pos_ls - sensor_center) + 1e-9)
-    dir2 = (pos2    - sensor_center) / (np.linalg.norm(pos2    - sensor_center) + 1e-9)
-    return pos_ls if np.dot(dir1, doa_vec) > np.dot(dir2, doa_vec) else pos2
+def music_doa_and_localize(raw_signal_t, feat_t, music_localizer):
+    doa_vec = FINAL_CODE.music_doa_estimation_stable(FINAL_CODE.SENSORS_CM, raw_signal_t)
+    return music_localizer.update(doa_vec, feat_t)
 
 # ==============================================================================
 # 유틸리티
@@ -210,13 +205,14 @@ def measure_time_kf(tdoa_dummy, sensors_dummy):
     return total_ms / 200  # 스텝당 ms
 
 def measure_time_music(raw_dummy, feat_dummy):
-    """MUSIC-LS: DOA 추정 + LS 위치 추정 1스텝"""
+    """MUSIC-LS: DOA estimation + TDOA/observed-DOA assisted localization, 1 step"""
+    music_localizer = FINAL_CODE.MusicLocalizer(FINAL_CODE.SENSORS_CM)
     for _ in range(WARMUP):
-        music_doa_and_localize(raw_dummy, feat_dummy)
+        music_doa_and_localize(raw_dummy, feat_dummy, music_localizer)
     t0 = time.perf_counter()
     for _ in range(ITER):
-        music_doa_and_localize(raw_dummy, feat_dummy)
-    return (time.perf_counter() - t0) / ITER * 1000  # ms
+        music_doa_and_localize(raw_dummy, feat_dummy, music_localizer)
+    return (time.perf_counter() - t0) / ITER * 1000  # ms/step
 
 # ==============================================================================
 # 메인
@@ -259,6 +255,8 @@ if __name__ == '__main__':
     dummy_feat   = np.zeros(25, dtype=np.float32)
     dummy_feat[0]   = 40000.0   # d0 (cm)
     dummy_feat[2:9] = dummy_tdoa
+    dummy_feat[9:17] = 0.0      # observed azimuth
+    dummy_feat[17:25] = 0.0     # observed elevation
     noise_std = 1.0 / np.sqrt(2.0 * 316.0)
     dummy_signal = (np.random.randn(8, MUSIC_N_SNAP)
                     + 1j * np.random.randn(8, MUSIC_N_SNAP)) * noise_std
@@ -310,4 +308,4 @@ if __name__ == '__main__':
     print(f"* Device: {DEVICE}")
     print(f"* Measurement: {ITER} iterations, batch size = 1, sequence length = {WINDOW_SIZE}")
     print(f"* KF: average per-step time (200 steps per trajectory)")
-    print(f"* MUSIC-LS: DOA estimation + LS localization per timestep")
+    print(f"* MUSIC-LS: DOA estimation + TDOA/observed-DOA assisted localization per timestep")
