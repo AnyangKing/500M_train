@@ -22,10 +22,10 @@ def music_track_rmse_m(final_code, td_noise_cm, doa_noise_deg, target_dist_cm, t
     )
 
     music_positions = []
+    music_localizer = final_code.MusicLocalizer(final_code.SENSORS_CM)
     for t in range(200):
         m_vec = final_code.music_doa_estimation_stable(final_code.SENSORS_CM, raw_signals[t])
-        prev_pos = None if t == 0 else music_positions[-1]
-        music_positions.append(final_code.localize_music(final_code.SENSORS_CM, m_vec, feat_cm[t], prev_pos))
+        music_positions.append(music_localizer.update(m_vec, feat_cm[t]))
 
     rmse_cm = final_code.calculate_rmse(gt_cm, np.array(music_positions))
     return rmse_cm / 100.0
