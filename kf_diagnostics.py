@@ -1,3 +1,7 @@
+import os
+
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
 import argparse
 import importlib.util
 from pathlib import Path
@@ -33,6 +37,20 @@ def kf_track_rmse_m(final_code, td_noise_cm, doa_noise_deg, target_dist_cm, tdoa
     return rmse_cm / 100.0
 
 
+def ls_track_rmse_m(final_code, td_noise_cm, doa_noise_deg, target_dist_cm, tdoa_bias_cm):
+    gt_cm, feat_cm, _ = final_code.generate_controlled_traj_cm(
+        td_noise_cm, doa_noise_deg, target_dist_cm=target_dist_cm, m_bias_cm=tdoa_bias_cm
+    )
+
+    ls_positions = np.array([
+        final_code.solve_ls_localization(feat_cm[t, 2:9], final_code.SENSORS_CM)
+        for t in range(200)
+    ])
+
+    rmse_cm = final_code.calculate_rmse(gt_cm, ls_positions)
+    return rmse_cm / 100.0
+
+
 def summarize(values, fail_threshold_m):
     values = np.asarray(values, dtype=np.float64)
     return {
@@ -58,7 +76,7 @@ def print_row(label, stats):
 
 
 def run_sweep(final_code, sweep_name, steps, args):
-    print(f"\n[{sweep_name}]")
+    print(f"\n[KF: {sweep_name}]")
     print("     value |      mean |    median |       p90 |       p95 |       max | fail>thr")
     print("-" * 83)
 
@@ -79,6 +97,39 @@ def run_sweep(final_code, sweep_name, steps, args):
 
             rmses.append(
                 kf_track_rmse_m(
+                    final_code,
+                    td_noise_cm=td_noise_cm,
+                    doa_noise_deg=doa_noise_deg,
+                    target_dist_cm=target_dist_cm,
+                    tdoa_bias_cm=tdoa_bias_cm,
+                )
+            )
+
+        print_row(f"{value:.1f}", summarize(rmses, args.fail_threshold_m))
+
+
+def run_ls_sweep(final_code, sweep_name, steps, args):
+    print(f"\n[LS-only: {sweep_name}]")
+    print("     value |      mean |    median |       p90 |       p95 |       max | fail>thr")
+    print("-" * 83)
+
+    for value in steps:
+        rmses = []
+        for _ in range(args.iter):
+            target_dist_cm = args.base_dist_m * 100.0
+            td_noise_cm = args.base_tdoa_std_cm
+            tdoa_bias_cm = args.base_tdoa_bias_cm
+            doa_noise_deg = args.base_doa_deg
+
+            if sweep_name == "distance_m":
+                target_dist_cm = value * 100.0
+            elif sweep_name == "tdoa_std_us":
+                td_noise_cm = value * final_code.SOUND_SPEED_CM_S / 1_000_000.0
+            elif sweep_name == "tdoa_bias_us":
+                tdoa_bias_cm = value * final_code.SOUND_SPEED_CM_S / 1_000_000.0
+
+            rmses.append(
+                ls_track_rmse_m(
                     final_code,
                     td_noise_cm=td_noise_cm,
                     doa_noise_deg=doa_noise_deg,
@@ -115,10 +166,13 @@ def main():
 
     if args.mode in ("distance", "all"):
         run_sweep(final_code, "distance_m", np.array([0, 50, 100, 200, 300, 400, 500, 600], dtype=float), args)
+        run_ls_sweep(final_code, "distance_m", np.array([0, 50, 100, 200, 300, 400, 500, 600], dtype=float), args)
     if args.mode in ("tdoa_std", "all"):
         run_sweep(final_code, "tdoa_std_us", np.array([0, 10, 20, 40, 60, 80, 100], dtype=float), args)
+        run_ls_sweep(final_code, "tdoa_std_us", np.array([0, 10, 20, 40, 60, 80, 100], dtype=float), args)
     if args.mode in ("tdoa_bias", "all"):
         run_sweep(final_code, "tdoa_bias_us", np.array([0, 10, 20, 40, 60, 80, 100], dtype=float), args)
+        run_ls_sweep(final_code, "tdoa_bias_us", np.array([0, 10, 20, 40, 60, 80, 100], dtype=float), args)
 
 
 if __name__ == "__main__":
