@@ -331,6 +331,21 @@ def solve_ls_localization(tdoa_values_cm, sensors):
     result, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
     return result[:3]
 
+def compute_initial_kf_state(feat_cm, sensors, init_steps=8, outlier_scale=2.5):
+    init_steps = min(init_steps, len(feat_cm))
+    ls_points = np.array([
+        solve_ls_localization(feat_cm[t, 2:9], sensors)
+        for t in range(init_steps)
+    ], dtype=np.float64)
+
+    center = np.median(ls_points, axis=0)
+    dists = np.linalg.norm(ls_points - center, axis=1)
+    median_dist = np.median(dists)
+    mad = np.median(np.abs(dists - median_dist)) + 1e-9
+    keep_mask = dists <= (median_dist + outlier_scale * mad)
+    kept_points = ls_points[keep_mask] if np.any(keep_mask) else ls_points
+    return np.median(kept_points, axis=0)
+
 def sliding_window_inference_cm(model, sx, sy, x_raw_cm):
     model.eval(); x_scaled = sx.transform(x_raw_cm).astype(np.float32, copy=False)
     windows = np.lib.stride_tricks.sliding_window_view(x_scaled, window_shape=WINDOW_SIZE, axis=0)
@@ -376,7 +391,7 @@ if __name__ == '__main__':
         print("모델 파일 경로를 확인해주세요.")
         sys.exit()
 
-    ITER, sensors_loc_cm = 1000, SENSORS_CM
+    ITER, sensors_loc_cm = 100000, SENSORS_CM
 
     def run_full_comparison(steps, type='dist'):
         res = {k: [] for k in model_styles.keys()}
@@ -391,9 +406,9 @@ if __name__ == '__main__':
                 gt_cm, feat_cm, raw_signals = generate_controlled_traj_cm(t_td_std, t_doa, t_dist, t_td_m)
                 for k, m in zip(['Proposed', 'LSTM', 'MLP', 'CNN'], [p_m, l_m, m_m, c_m]):
                     errs_cm[k].append(calculate_rmse(gt_cm, sliding_window_inference_cm(m, sx, sy, feat_cm)))
-                ls_init = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
+                ls_init = compute_initial_kf_state(feat_cm, sensors_loc_cm)
                 kf = KalmanFilter(ls_init)
-                kf_t = [ls_init.copy()]  # t=0은 초기 LS 값을 그대로 사용
+                kf_t = [ls_init.copy()]  # t=0은 robust 초기값 사용
                 for t in range(1, 200):
                     ls_pos = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
                     kf_t.append(kf.predict_and_update(ls_pos))
@@ -462,9 +477,9 @@ if __name__ == '__main__':
         m_v = music_doa_estimation_stable(sensors_loc_cm, raw_signals[t])
         music_m_list.append(music_localizer_vis.update(m_v, feat_cm[t]) / 100.0)
     p_all['MUSIC'] = np.array(music_m_list)
-    ls_init_vis = solve_ls_localization(feat_cm[0, 2:9], sensors_loc_cm)
+    ls_init_vis = compute_initial_kf_state(feat_cm, sensors_loc_cm)
     kf_vis = KalmanFilter(ls_init_vis)
-    kf_vis_traj = [ls_init_vis.copy() / 100.0]  # t=0은 초기 LS 값을 그대로 사용
+    kf_vis_traj = [ls_init_vis.copy() / 100.0]  # t=0은 robust 초기값 사용
     for t in range(1, 200):
         ls_pos_vis = solve_ls_localization(feat_cm[t, 2:9], sensors_loc_cm)
         kf_vis_traj.append(kf_vis.predict_and_update(ls_pos_vis) / 100.0)
