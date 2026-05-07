@@ -37,6 +37,52 @@ def load_results(path):
     return bundle
 
 
+def print_summary_tables(dist_steps, tdoa_m_steps_cm, tdoa_std_steps_cm, doa_steps, r_dist, r_tdoa, r_tdoa_std, r_doa):
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: 거리별(m) ]\n{'='*175}")
+    print(f"{'Dist(m)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
+    print(f"{'-'*175}")
+    for i in range(len(dist_steps)):
+        val = int(round(dist_steps[i] / 100.0))
+        if val % 10 == 0:
+            print(
+                f"{val:>8} | {r_dist['Proposed'][i]:<16.4f} | {r_dist['MUSIC'][i]:<16.4f} | "
+                f"{r_dist['LSTM'][i]:<16.4f} | {r_dist['MLP'][i]:<16.4f} | {r_dist['KF'][i]:<16.4f} | "
+                f"{r_dist['CNN'][i]:.4f}"
+            )
+
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 평균 바이어스별(us) ]\n{'='*175}")
+    print(f"{'Bias(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
+    print(f"{'-'*175}")
+    for i in range(len(tdoa_m_steps_cm)):
+        s_str = f"{round(i * 1.0):>8}"
+        print(
+            f"{s_str} | {r_tdoa['Proposed'][i]:<16.4f} | {r_tdoa['MUSIC'][i]:<16.4f} | "
+            f"{r_tdoa['LSTM'][i]:<16.4f} | {r_tdoa['MLP'][i]:<16.4f} | {r_tdoa['KF'][i]:<16.4f} | "
+            f"{r_tdoa['CNN'][i]:.4f}"
+        )
+
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 노이즈 표준편차별(us) ]\n{'='*175}")
+    print(f"{'Std(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
+    print(f"{'-'*175}")
+    for i in range(len(tdoa_std_steps_cm)):
+        s_str = f"{round(i * 1.0):>8}"
+        print(
+            f"{s_str} | {r_tdoa_std['Proposed'][i]:<16.4f} | {r_tdoa_std['MUSIC'][i]:<16.4f} | "
+            f"{r_tdoa_std['LSTM'][i]:<16.4f} | {r_tdoa_std['MLP'][i]:<16.4f} | {r_tdoa_std['KF'][i]:<16.4f} | "
+            f"{r_tdoa_std['CNN'][i]:.4f}"
+        )
+
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: DOA 오차별(deg) ]\n{'='*175}")
+    print(f"{'DOA(deg)':<10} | {'Prop':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
+    print(f"{'-'*175}")
+    for i in range(len(doa_steps)):
+        s_str = f"{doa_steps[i]:>8.1f}"
+        print(
+            f"{s_str} | {r_doa['Proposed'][i]:<16.4f} | {r_doa['LSTM'][i]:<16.4f} | "
+            f"{r_doa['MLP'][i]:<16.4f} | {r_doa['KF'][i]:<16.4f} | {r_doa['CNN'][i]:.4f}"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Plot saved comparison results.")
     parser.add_argument("--input", type=str, default=str(DEFAULT_INPUT), help="Input .npz results path")
@@ -54,6 +100,8 @@ def main():
     r_tdoa = {k: data[f"r_tdoa_{k}"] for k in MODEL_KEYS}
     r_tdoa_std = {k: data[f"r_tdoa_std_{k}"] for k in MODEL_KEYS}
     r_doa = {k: data[f"r_doa_{k}"] for k in MODEL_KEYS}
+
+    print_summary_tables(dist_steps, tdoa_m_steps_cm, tdoa_std_steps_cm, doa_steps, r_dist, r_tdoa, r_tdoa_std, r_doa)
 
     gt_m = data["viz_gt_m"]
     p_all = {k: data[f"viz_{k}_m"] for k in MODEL_KEYS}
