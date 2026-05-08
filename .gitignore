@@ -14,3 +14,4 @@
 # 파이썬 실행 시 생기는 임시 폴더 제외
 __pycache__/
 .ipynb_checkpoints/
+
