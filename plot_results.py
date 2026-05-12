@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_INPUT = ROOT / "comparison_results.npz"
 
 MODEL_KEYS = ["Proposed", "MUSIC", "LSTM", "MLP", "KF", "CNN"]
+OUTPUT_MODEL_KEYS = ["Proposed", "MUSIC", "LSTM", "MLP", "CNN"]
+DOA_OUTPUT_MODEL_KEYS = ["Proposed", "LSTM", "MLP", "CNN"]
 MODEL_STYLES = {
     "Proposed": {"marker": "o", "color": "r", "ls": "-"},
     "MUSIC": {"marker": "D", "color": "green", "ls": "--"},
@@ -80,47 +82,47 @@ def display_label(key):
 
 def print_summary_tables(dist_steps, tdoa_m_steps_cm, tdoa_std_steps_cm, doa_steps, r_dist, r_tdoa, r_tdoa_std, r_doa):
     print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: 거리별(m) ]\n{'='*175}")
-    print(f"{'Dist(m)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
+    print(f"{'Dist(m)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(dist_steps)):
         val = int(round(dist_steps[i] / 100.0))
         if val % 10 == 0:
             print(
                 f"{val:>8} | {r_dist['Proposed'][i]:<16.4f} | {r_dist['MUSIC'][i]:<16.4f} | "
-                f"{r_dist['LSTM'][i]:<16.4f} | {r_dist['MLP'][i]:<16.4f} | {r_dist['KF'][i]:<16.4f} | "
+                f"{r_dist['LSTM'][i]:<16.4f} | {r_dist['MLP'][i]:<16.4f} | "
                 f"{r_dist['CNN'][i]:.4f}"
             )
 
     print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 평균 바이어스별(us) ]\n{'='*175}")
-    print(f"{'Bias(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
+    print(f"{'Bias(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(tdoa_m_steps_cm)):
         s_str = f"{round(i * 1.0):>8}"
         print(
             f"{s_str} | {r_tdoa['Proposed'][i]:<16.4f} | {r_tdoa['MUSIC'][i]:<16.4f} | "
-            f"{r_tdoa['LSTM'][i]:<16.4f} | {r_tdoa['MLP'][i]:<16.4f} | {r_tdoa['KF'][i]:<16.4f} | "
+            f"{r_tdoa['LSTM'][i]:<16.4f} | {r_tdoa['MLP'][i]:<16.4f} | "
             f"{r_tdoa['CNN'][i]:.4f}"
         )
 
     print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 노이즈 표준편차별(us) ]\n{'='*175}")
-    print(f"{'Std(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
+    print(f"{'Std(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(tdoa_std_steps_cm)):
         s_str = f"{round(i * 1.0):>8}"
         print(
             f"{s_str} | {r_tdoa_std['Proposed'][i]:<16.4f} | {r_tdoa_std['MUSIC'][i]:<16.4f} | "
-            f"{r_tdoa_std['LSTM'][i]:<16.4f} | {r_tdoa_std['MLP'][i]:<16.4f} | {r_tdoa_std['KF'][i]:<16.4f} | "
+            f"{r_tdoa_std['LSTM'][i]:<16.4f} | {r_tdoa_std['MLP'][i]:<16.4f} | "
             f"{r_tdoa_std['CNN'][i]:.4f}"
         )
 
     print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: DOA 오차별(deg) ]\n{'='*175}")
-    print(f"{'DOA(deg)':<10} | {'Prop':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
+    print(f"{'DOA(deg)':<10} | {'Prop':<16} | {'LSTM':<16} | {'MLP':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(doa_steps)):
         s_str = f"{doa_steps[i]:>8.1f}"
         print(
             f"{s_str} | {r_doa['Proposed'][i]:<16.4f} | {r_doa['LSTM'][i]:<16.4f} | "
-            f"{r_doa['MLP'][i]:<16.4f} | {r_doa['KF'][i]:<16.4f} | {r_doa['CNN'][i]:.4f}"
+            f"{r_doa['MLP'][i]:<16.4f} | {r_doa['CNN'][i]:.4f}"
         )
 
 
@@ -148,15 +150,15 @@ def main():
 
     gt_m = data["viz_gt_m"]
     p_all = {k: data[f"viz_{k}_m"] for k in MODEL_KEYS}
-    viz_tracks = [gt_m] + [p_all[k] for k in MODEL_KEYS]
-    clustered_pred_tracks = select_tracks_near_ground_truth(gt_m, [p_all[k] for k in MODEL_KEYS])
+    viz_tracks = [gt_m] + [p_all[k] for k in OUTPUT_MODEL_KEYS]
+    clustered_pred_tracks = select_tracks_near_ground_truth(gt_m, [p_all[k] for k in OUTPUT_MODEL_KEYS])
 
     # Figure 1, 2, 3: 평면별 추정 결과
     planes = [("X", "Y", [0, 1], 1), ("X", "Z", [0, 2], 2), ("Y", "Z", [1, 2], 3)]
     for n1, n2, dims, fig_n in planes:
         plt.figure(fig_n, figsize=(9, 7))
         plt.plot(gt_m[:, dims[0]], gt_m[:, dims[1]], "k--", label="Ground Truth", lw=2)
-        for key in MODEL_KEYS:
+        for key in OUTPUT_MODEL_KEYS:
             plt.plot(
                 p_all[key][:, dims[0]],
                 p_all[key][:, dims[1]],
@@ -182,7 +184,7 @@ def main():
     plt.gca().set_xticks(np.arange(0, 601, 100))
     plt.gca().xaxis.grid(True, ls=":", alpha=0.5)
     plt.gca().yaxis.grid(True, which="both", ls=":", alpha=0.5)
-    for key in ["Proposed", "LSTM", "MLP", "KF", "CNN", "MUSIC"]:
+    for key in ["Proposed", "LSTM", "MLP", "CNN", "MUSIC"]:
         plt.plot(
             dist_steps / 100.0,
             r_dist[key],
@@ -207,7 +209,7 @@ def main():
     plt.gca().set_xticks(np.arange(0, 101, 10))
     plt.gca().xaxis.grid(True, ls=":", alpha=0.5)
     plt.gca().yaxis.grid(True, which="both", ls=":", alpha=0.5)
-    for key in MODEL_KEYS:
+    for key in OUTPUT_MODEL_KEYS:
         plt.plot(
             td_us,
             r_tdoa[key],
@@ -231,9 +233,7 @@ def main():
     plt.gca().set_xticks(doa_steps)
     plt.gca().xaxis.grid(True, ls=":", alpha=0.5)
     plt.gca().yaxis.grid(True, which="both", ls=":", alpha=0.5)
-    for key in MODEL_KEYS:
-        if key == "MUSIC":
-            continue
+    for key in DOA_OUTPUT_MODEL_KEYS:
         plt.plot(
             doa_steps,
             r_doa[key],
@@ -256,7 +256,7 @@ def main():
     fig7 = plt.figure(7, figsize=(10, 8))
     ax7 = fig7.add_subplot(111, projection="3d")
     ax7.plot(gt_m[:, 0], gt_m[:, 1], gt_m[:, 2], "k--", label="Ground Truth", lw=2)
-    for key in ["Proposed", "LSTM", "MLP", "KF", "CNN", "MUSIC"]:
+    for key in ["Proposed", "LSTM", "MLP", "CNN", "MUSIC"]:
         ax7.plot(
             p_all[key][:, 0],
             p_all[key][:, 1],
@@ -286,7 +286,7 @@ def main():
     plt.gca().set_xticks(np.arange(100, 301, 20))
     plt.gca().xaxis.grid(True, ls=":", alpha=0.5)
     plt.gca().yaxis.grid(True, which="both", ls=":", alpha=0.5)
-    for key in ["Proposed", "LSTM", "MLP", "KF", "CNN", "MUSIC"]:
+    for key in ["Proposed", "LSTM", "MLP", "CNN", "MUSIC"]:
         plt.plot(
             steps_sub,
             np.array(r_dist[key])[mask],
@@ -311,7 +311,7 @@ def main():
     plt.gca().set_xticks(np.arange(0, 101, 10))
     plt.gca().xaxis.grid(True, ls=":", alpha=0.5)
     plt.gca().yaxis.grid(True, which="both", ls=":", alpha=0.5)
-    for key in MODEL_KEYS:
+    for key in OUTPUT_MODEL_KEYS:
         plt.plot(
             td_std_us,
             r_tdoa_std[key],
