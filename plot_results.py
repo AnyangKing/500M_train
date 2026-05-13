@@ -8,6 +8,10 @@ from matplotlib.ticker import ScalarFormatter
 
 plt.rcParams["font.family"] = "Malgun Gothic"
 plt.rcParams["axes.unicode_minus"] = False
+plt.rcParams["axes.labelsize"] = 18
+plt.rcParams["xtick.labelsize"] = 16
+plt.rcParams["ytick.labelsize"] = 16
+plt.rcParams["legend.fontsize"] = 18
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_INPUT = ROOT / "comparison_results.npz"
@@ -176,7 +180,6 @@ def main():
             gt_m, clustered_pred_tracks, dims[1], padding_ratio=args.plane_padding_ratio, min_padding=args.plane_min_padding
         ))
         plt.grid(True, ls=":", alpha=0.6)
-        plt.legend()
         plt.tight_layout()
 
     # Figure 4: 거리 분석
@@ -200,7 +203,6 @@ def main():
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.xlabel("Distance (m)")
     plt.ylabel("RMSE (m)")
-    plt.legend()
     plt.tight_layout()
 
     # Figure 5: TDOA 바이어스 분석
@@ -225,7 +227,6 @@ def main():
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.xlabel(r"TDOA Bias ($\mu s$)")
     plt.ylabel("RMSE (m)")
-    plt.legend()
     plt.tight_layout()
 
     # Figure 6: DOA 검증 (MUSIC 제외)
@@ -249,7 +250,6 @@ def main():
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.xlabel("DOA Deviation (deg)")
     plt.ylabel("RMSE (m)")
-    plt.legend()
     plt.tight_layout()
 
     # Figure 7: 3D 궤적
@@ -276,7 +276,6 @@ def main():
     ax7.set_zlim(*limits_3d[2])
     ax7.set_box_aspect(aspect_3d)
     ax7.view_init(elev=18, azim=-48)
-    ax7.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0)
     plt.tight_layout()
 
     # Figure 8: 거리 100-300m 상세
@@ -302,7 +301,6 @@ def main():
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.xlabel("Distance (m)")
     plt.ylabel("RMSE (m)")
-    plt.legend()
     plt.tight_layout()
 
     # Figure 9: TDOA 노이즈 표준편차 분석
@@ -327,7 +325,6 @@ def main():
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.xlabel(r"TDOA Noise Std ($\mu s$)")
     plt.ylabel("RMSE (m)")
-    plt.legend()
     plt.tight_layout()
 
     # 논문 제출용 고해상도 Figure 저장 (600 DPI)
