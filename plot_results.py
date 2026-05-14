@@ -8,9 +8,9 @@ from matplotlib.ticker import ScalarFormatter
 
 plt.rcParams["font.family"] = "Malgun Gothic"
 plt.rcParams["axes.unicode_minus"] = False
-plt.rcParams["axes.labelsize"] = 18
-plt.rcParams["xtick.labelsize"] = 16
-plt.rcParams["ytick.labelsize"] = 16
+plt.rcParams["axes.labelsize"] = 22
+plt.rcParams["xtick.labelsize"] = 22
+plt.rcParams["ytick.labelsize"] = 22
 plt.rcParams["legend.fontsize"] = 18
 
 ROOT = Path(__file__).resolve().parent
