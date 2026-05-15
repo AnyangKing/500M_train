@@ -3,7 +3,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import MaxNLocator, ScalarFormatter
 
 
 plt.rcParams["font.family"] = "Malgun Gothic"
@@ -89,7 +89,7 @@ def print_summary_tables(dist_steps, tdoa_m_steps_cm, tdoa_std_steps_cm, doa_ste
     print(f"{'Dist(m)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(dist_steps)):
-        val = int(round(dist_steps[i] / 100.0))
+        val = int(round(dist_steps[i]))
         if val % 10 == 0:
             print(
                 f"{val:>8} | {r_dist['Proposed'][i]:<16.4f} | {r_dist['MUSIC'][i]:<16.4f} | "
@@ -160,7 +160,7 @@ def main():
     # Figure 1, 2, 3: 평면별 추정 결과
     planes = [("X", "Y", [0, 1], 1), ("X", "Z", [0, 2], 2), ("Y", "Z", [1, 2], 3)]
     for n1, n2, dims, fig_n in planes:
-        plt.figure(fig_n, figsize=(9, 7))
+        plt.figure(fig_n, figsize=(11, 9))
         plt.plot(gt_m[:, dims[0]], gt_m[:, dims[1]], "k--", label="Ground Truth", lw=2)
         for key in OUTPUT_MODEL_KEYS:
             plt.plot(
@@ -179,6 +179,11 @@ def main():
         plt.ylim(*get_axis_limits_for_plane(
             gt_m, clustered_pred_tracks, dims[1], padding_ratio=args.plane_padding_ratio, min_padding=args.plane_min_padding
         ))
+        ax = plt.gca()
+        ax.set_xlabel(f"{n1} (m)")
+        ax.set_ylabel(f"{n2} (m)")
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
         plt.grid(True, ls=":", alpha=0.6)
         plt.tight_layout()
 
@@ -189,7 +194,7 @@ def main():
     plt.gca().yaxis.grid(True, which="both", ls=":", alpha=0.5)
     for key in ["Proposed", "LSTM", "MLP", "CNN", "MUSIC"]:
         plt.plot(
-            dist_steps / 100.0,
+            dist_steps,
             r_dist[key],
             label=display_label(key),
             color=MODEL_STYLES[key]["color"],
@@ -253,7 +258,7 @@ def main():
     plt.tight_layout()
 
     # Figure 7: 3D 궤적
-    fig7 = plt.figure(7, figsize=(10, 8))
+    fig7 = plt.figure(7, figsize=(12, 10))
     ax7 = fig7.add_subplot(111, projection="3d")
     ax7.plot(gt_m[:, 0], gt_m[:, 1], gt_m[:, 2], "k--", label="Ground Truth", lw=2)
     for key in ["Proposed", "LSTM", "MLP", "CNN", "MUSIC"]:
@@ -276,12 +281,18 @@ def main():
     ax7.set_zlim(*limits_3d[2])
     ax7.set_box_aspect(aspect_3d)
     ax7.view_init(elev=18, azim=-48)
+    ax7.set_xlabel("X (m)")
+    ax7.set_ylabel("Y (m)")
+    ax7.set_zlabel("Z (m)")
+    ax7.xaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax7.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax7.zaxis.set_major_locator(MaxNLocator(nbins=6))
     plt.tight_layout()
 
     # Figure 8: 거리 100-300m 상세
     plt.figure(8, figsize=(10, 7))
-    mask = (dist_steps >= 10000) & (dist_steps <= 30000)
-    steps_sub = dist_steps[mask] / 100.0
+    mask = (dist_steps >= 100) & (dist_steps <= 300)
+    steps_sub = dist_steps[mask]
     plt.gca().set_xticks(np.arange(100, 301, 20))
     plt.gca().xaxis.grid(True, ls=":", alpha=0.5)
     plt.gca().yaxis.grid(True, which="both", ls=":", alpha=0.5)
