@@ -3,7 +3,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import MaxNLocator, ScalarFormatter
+from matplotlib.ticker import MaxNLocator, MultipleLocator, ScalarFormatter
 
 
 plt.rcParams["font.family"] = "Malgun Gothic"
@@ -277,7 +277,7 @@ def main():
     ax7.set_box_aspect(aspect_3d)
     ax7.view_init(elev=18, azim=-48)
     ax7.xaxis.set_major_locator(MaxNLocator(nbins=4))
-    ax7.yaxis.set_major_locator(MaxNLocator(nbins=4))
+    ax7.yaxis.set_major_locator(MultipleLocator(20))
     ax7.zaxis.set_major_locator(MaxNLocator(nbins=4))
     plt.tight_layout()
 
