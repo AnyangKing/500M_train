@@ -21,7 +21,8 @@ BOX_W_INNER = 2.5
 BOX_H_SM    = 0.60
 BOX_H_LG    = 0.58
 GAP         = 0.26
-ENC_PAD     = 0.20
+ENC_PAD_TOP = 0.20
+ENC_PAD_BOT = 0.28
 MARGIN_BOT  = 0.55
 MARGIN_TOP  = 0.50
 
@@ -48,14 +49,14 @@ pos['inp']  = y + BOX_H_SM/2;  y = top(pos['inp'], BOX_H_SM) + GAP
 pos['emb']  = y + BOX_H_LG/2;  y = top(pos['emb'], BOX_H_LG) + GAP
 pos['pe']   = y + BOX_H_LG/2;  y = top(pos['pe'],  BOX_H_LG) + GAP*1.5   # encoder 진입 여백
 
-enc_y0 = y - ENC_PAD  # encoder 외곽 아래쪽
+enc_y0 = y - ENC_PAD_BOT  # encoder 외곽 아래쪽
 
 pos['attn'] = y + BOX_H_LG/2;  y = top(pos['attn'], BOX_H_LG) + GAP
 pos['add1'] = y + BOX_H_SM/2;  y = top(pos['add1'], BOX_H_SM) + GAP
 pos['ffn']  = y + BOX_H_LG/2;  y = top(pos['ffn'],  BOX_H_LG) + GAP
 pos['add2'] = y + BOX_H_SM/2;  y = top(pos['add2'], BOX_H_SM)
 
-enc_y1 = y + ENC_PAD  # encoder 외곽 위쪽
+enc_y1 = y + ENC_PAD_TOP  # encoder 외곽 위쪽
 
 y += GAP*1.5
 pos['lin2'] = y + BOX_H_LG/2;  y = top(pos['lin2'], BOX_H_LG) + GAP
@@ -95,15 +96,17 @@ def draw_arrow(cx, y0, y1):
     ax.annotate('', xy=(cx, y1), xytext=(cx, y0),
         arrowprops=dict(arrowstyle='->', color='#666', lw=1.0, mutation_scale=8))
 
-def draw_residual(xr, y_top, y_bot):
-    # ④ xr → 박스 왼쪽 엣지까지 정확히 연결
+def draw_residual(xr, y_branch, y_target):
+    # Residual path: sublayer 입력을 우회해 Add & layer norm의 왼쪽 중앙으로 들어간다.
     box_edge = CX - BOX_W_INNER / 2
     kw = dict(color='#bbb', lw=0.8, ls='--', zorder=2)
-    ax.plot([xr, xr],         [y_top, y_bot],    **kw)   # 수직선
-    ax.plot([xr, box_edge],   [y_top, y_top],    **kw)   # 상단 수평 연결
-    ax.annotate('', xy=(box_edge, y_bot), xytext=(xr, y_bot),
-        arrowprops=dict(arrowstyle='->', color='#bbb', lw=0.8, mutation_scale=7))
-    ax.text(xr - 0.12, (y_top + y_bot) / 2, '+',
+    ax.plot([CX, xr], [y_branch, y_branch], **kw)         # main flow에서 분기
+    ax.plot([xr, xr], [y_branch, y_target], **kw)         # skip 경로
+    ax.annotate('', xy=(box_edge, y_target), xytext=(xr, y_target),
+        arrowprops=dict(arrowstyle='->', color='#bbb', lw=0.8,
+                        linestyle='--', mutation_scale=7))
+    ax.plot(CX, y_branch, marker='o', ms=2.4, color='#999', zorder=5)
+    ax.text(xr - 0.12, (y_branch + y_target) / 2, '+',
             ha='center', va='center', fontsize=10, color='#bbb', fontweight='bold')
 
 # ==============================================================================
@@ -152,16 +155,16 @@ draw_box(CX, pos['attn'], BOX_W_INNER, BOX_H_LG, 'Multi-head self-attention',
 draw_arrow(CX, top(pos['attn'], BOX_H_LG), bot(pos['add1'], BOX_H_SM))
 
 xr = CX - BOX_W_INNER/2 - 0.33
-draw_residual(xr, top(pos['pe'], BOX_H_LG)+0.04, bot(pos['add1'], BOX_H_SM))
+draw_residual(xr, bot(pos['attn'], BOX_H_LG)-0.18, pos['add1'])
 
 draw_box(CX, pos['add1'], BOX_W_INNER, BOX_H_SM, 'Add & layer norm', fc=COL_LGRAY)
 draw_arrow(CX, top(pos['add1'], BOX_H_SM), bot(pos['ffn'], BOX_H_LG))
 
 draw_box(CX, pos['ffn'], BOX_W_INNER, BOX_H_LG, 'Feed-forward network',
-         sub='d_ff = 512,  GELU,  dropout = 0.0534', fc=COL_CORAL)
+         sub='d_ff = 512,  ReLU,  dropout = 0.0534', fc=COL_CORAL)
 draw_arrow(CX, top(pos['ffn'], BOX_H_LG), bot(pos['add2'], BOX_H_SM))
 
-draw_residual(xr, top(pos['add1'], BOX_H_SM)+0.04, bot(pos['add2'], BOX_H_SM))
+draw_residual(xr, top(pos['add1'], BOX_H_SM)+0.10, pos['add2'])
 
 draw_box(CX, pos['add2'], BOX_W_INNER, BOX_H_SM, 'Add & layer norm', fc=COL_LGRAY)
 draw_arrow(CX, enc_y1, bot(pos['lin2'], BOX_H_LG))
