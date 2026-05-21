@@ -3,18 +3,22 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 import matplotlib.transforms as mtransforms
+import os
 
 # ==============================================================================
 # 수정 가능한 설정값
 # ==============================================================================
-SAVE_PATH   = 'transformer_blockdiagram.png'
-DPI         = 150
+# ① __file__ 기반 저장 경로 (스크립트가 있는 폴더에 저장)
+_DIR      = os.path.dirname(os.path.abspath(__file__))
+SAVE_PATH = os.path.join(_DIR, 'transformer_blockdiagram.png')
+DPI       = 300  # ② 논문용 300 DPI
 
 # 모든 크기 단위: 인치 (figure 좌표)
 FIG_W       = 6.0
 BOX_W_MAIN  = 2.8
 BOX_W_INNER = 2.5
-BOX_H_SM    = 0.48
+# ③ 입력 박스 높이를 크게 해서 서브텍스트를 박스 안에 넣음
+BOX_H_SM    = 0.60
 BOX_H_LG    = 0.58
 GAP         = 0.26
 ENC_PAD     = 0.20
@@ -92,26 +96,28 @@ def draw_arrow(cx, y0, y1):
         arrowprops=dict(arrowstyle='->', color='#666', lw=1.0, mutation_scale=8))
 
 def draw_residual(xr, y_top, y_bot):
+    # ④ xr → 박스 왼쪽 엣지까지 정확히 연결
+    box_edge = CX - BOX_W_INNER / 2
     kw = dict(color='#bbb', lw=0.8, ls='--', zorder=2)
-    ax.plot([xr, xr],      [y_top, y_bot],  **kw)
-    ax.plot([xr, xr+0.18], [y_top, y_top],  **kw)
-    ax.annotate('', xy=(xr+0.18, y_bot), xytext=(xr, y_bot),
+    ax.plot([xr, xr],         [y_top, y_bot],    **kw)   # 수직선
+    ax.plot([xr, box_edge],   [y_top, y_top],    **kw)   # 상단 수평 연결
+    ax.annotate('', xy=(box_edge, y_bot), xytext=(xr, y_bot),
         arrowprops=dict(arrowstyle='->', color='#bbb', lw=0.8, mutation_scale=7))
-    ax.text(xr-0.12, (y_top+y_bot)/2, '+',
+    ax.text(xr - 0.12, (y_top + y_bot) / 2, '+',
             ha='center', va='center', fontsize=10, color='#bbb', fontweight='bold')
 
 # ==============================================================================
 # 그리기
 # ==============================================================================
 
-# --- 인코더 외곽 박스 ---
+# --- 인코더 외곽 박스 (왼쪽 여백 0.26 → 0.45로 확장, Residual선 수용) ---
 ax.add_patch(FancyBboxPatch(
-    (CX - BOX_W_MAIN/2 - 0.26, enc_y0),
-    BOX_W_MAIN + 0.52, enc_y1 - enc_y0,
+    (CX - BOX_W_MAIN/2 - 0.45, enc_y0),
+    BOX_W_MAIN + 0.71, enc_y1 - enc_y0,
     boxstyle="round,pad=0,rounding_size=0.10",
     linewidth=1.0, edgecolor='#9070C8',
     facecolor=COL_PURPLE, zorder=1))
-ax.text(CX - BOX_W_MAIN/2 - 0.14, (enc_y0+enc_y1)/2,
+ax.text(CX - BOX_W_MAIN/2 - 0.33, (enc_y0+enc_y1)/2,
         'Transformer\nencoder layer',
         ha='center', va='center', fontsize=7,
         color='#5A3A9A', fontweight='bold', rotation=90, zorder=4)
@@ -127,10 +133,10 @@ ax.text(bx+0.22, by, '× 9',
         color='white', fontweight='bold', zorder=6)
 
 # --- 블록들 ---
-ax.text(CX, bot(pos['inp'], BOX_H_SM)-0.16,
-        '25-dim × 20 timesteps  (TOA, TDOA, DOA)',
-        ha='center', va='center', fontsize=6.5, color='#555')
-draw_box(CX, pos['inp'], BOX_W_MAIN, BOX_H_SM, 'Input feature sequence', fc=COL_GRAY)
+# ③ 입력 박스: 서브텍스트를 박스 안에 배치 (sub 파라미터 사용)
+draw_box(CX, pos['inp'], BOX_W_MAIN, BOX_H_SM,
+         'Input feature sequence',
+         sub='25-dim × 20 timesteps  (TOA, TDOA, DOA)', fc=COL_GRAY)
 draw_arrow(CX, top(pos['inp'], BOX_H_SM), bot(pos['emb'], BOX_H_LG))
 
 draw_box(CX, pos['emb'], BOX_W_MAIN, BOX_H_LG, 'Linear embedding',
@@ -167,9 +173,7 @@ draw_arrow(CX, top(pos['lin2'], BOX_H_LG), bot(pos['out'], BOX_H_SM))
 draw_box(CX, pos['out'], BOX_W_MAIN, BOX_H_SM,
          'Output:  (x, y, z)  ×  20 steps', fc=COL_GRAY)
 
-ax.text(CX, title_y, 'Transformer Encoder Architecture',
-        ha='center', va='center', fontsize=11, fontweight='bold')
-
+# ⑤ 상단 타이틀 제거 (LaTeX 캡션으로 처리)
 # ==============================================================================
 plt.savefig(SAVE_PATH, dpi=DPI, facecolor='white', edgecolor='none')
 plt.close()
