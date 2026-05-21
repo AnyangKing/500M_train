@@ -28,6 +28,18 @@ MODEL_STYLES = {
     "CNN": {"marker": "x", "color": "c", "ls": "-"},
 }
 
+FIGURE_OUTPUTS = {
+    1: "trajectory_xy_plane.png",
+    2: "trajectory_xz_plane.png",
+    3: "trajectory_yz_plane.png",
+    4: "rmse_distance_0_600m.png",
+    5: "rmse_tdoa_bias_0_100us.png",
+    6: "rmse_doa_noise_0_1p2deg.png",
+    7: "trajectory_3d.png",
+    8: "rmse_distance_100_300m_detail.png",
+    9: "rmse_tdoa_noise_std_0_100us.png",
+}
+
 
 def get_axis_limits_from_tracks(tracks, dim, padding_ratio=0.08, min_padding=5.0):
     values = np.concatenate([track[:, dim] for track in tracks])
@@ -331,9 +343,9 @@ def main():
     plt.tight_layout()
 
     # 논문 제출용 고해상도 Figure 저장 (600 DPI)
-    for fig_n in range(1, 10):
+    for fig_n, filename in FIGURE_OUTPUTS.items():
         plt.figure(fig_n)
-        plt.savefig(ROOT / f"Figure_{fig_n}.png", dpi=args.dpi, bbox_inches="tight")
+        plt.savefig(ROOT / filename, dpi=args.dpi, bbox_inches="tight")
 
     plt.show()
 

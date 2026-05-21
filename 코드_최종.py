@@ -125,6 +125,18 @@ _MUSIC_STEERING_GPU = _MUSIC_STEERING_GPU / (torch.linalg.norm(_MUSIC_STEERING_G
 _SW_COUNTS = np.minimum(np.arange(1, 201), WINDOW_SIZE)
 _SW_COUNTS = np.minimum(_SW_COUNTS, _SW_COUNTS[::-1]).astype(np.float32).reshape(-1, 1)
 
+FIGURE_OUTPUTS = {
+    1: "trajectory_xy_plane.png",
+    2: "trajectory_xz_plane.png",
+    3: "trajectory_yz_plane.png",
+    4: "rmse_distance_0_600m.png",
+    5: "rmse_tdoa_bias_0_100us.png",
+    6: "rmse_doa_noise_0_1p2deg.png",
+    7: "trajectory_3d.png",
+    8: "rmse_distance_100_300m_detail.png",
+    9: "rmse_tdoa_noise_std_0_100us.png",
+}
+
 def generate_controlled_traj_cm(td_noise_cm, doa_noise_deg, target_dist_cm=None, m_bias_cm=0.0):
     sensors = get_sensors_cm(); traj = np.zeros((200, 3), dtype=np.float32)
     direction = np.random.randn(3); direction /= (np.linalg.norm(direction) + 1e-9)
@@ -560,8 +572,8 @@ if __name__ == '__main__':
     plt.title("TDOA Noise Std Analysis"); plt.xlabel(r"TDOA Noise Std ($\mu s$)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
     # 논문 제출용 고해상도 Figure 저장 (600 DPI)
-    for fig_n in range(1, 10):
+    for fig_n, filename in FIGURE_OUTPUTS.items():
         plt.figure(fig_n)
-        plt.savefig(f"Figure_{fig_n}.png", dpi=600, bbox_inches="tight")
+        plt.savefig(filename, dpi=600, bbox_inches="tight")
 
     plt.show()
