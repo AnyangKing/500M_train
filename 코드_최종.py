@@ -94,8 +94,8 @@ class KalmanFilter:
 # ==============================================================================
 MUSIC_F0 = 32000.0          # 중심 주파수 (Hz)
 MUSIC_N_SNAP = 64           # 스냅샷 수
-MUSIC_AZ_RES = 2            # azimuth 탐색 해상도 (deg)
-MUSIC_EL_RES = 2            # elevation 탐색 해상도 (deg)
+MUSIC_AZ_RES = 1            # azimuth 탐색 해상도 (deg)
+MUSIC_EL_RES = 1            # elevation 탐색 해상도 (deg)
 MUSIC_SNR_LINEAR = 316.0     # SNR=25dB
 
 # 탐색 격자 사전 계산

@@ -7,8 +7,8 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 SOUND_SPEED_CM_S = 150000.0
 MUSIC_F0 = 32000.0
 MUSIC_N_SNAP = 64
-MUSIC_AZ_RES = 2
-MUSIC_EL_RES = 2
+MUSIC_AZ_RES = 1
+MUSIC_EL_RES = 1
 MUSIC_SNR_LINEAR = 31.6
 
 # 탐색 격자

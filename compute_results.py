@@ -155,6 +155,7 @@ def main():
     doa_steps = np.linspace(0, 1.2, 13, dtype=np.float32)
 
     print(f"ITER={args.iter}")
+    print(f"MUSIC grid resolution: az={fc.MUSIC_AZ_RES} deg, el={fc.MUSIC_EL_RES} deg")
     r_dist = run_full_comparison(fc, sx, sy, models, dist_steps, "dist", args.iter)
     r_tdoa = run_full_comparison(fc, sx, sy, models, tdoa_m_steps_cm, "tdoa", args.iter)
     r_tdoa_std = run_full_comparison(fc, sx, sy, models, tdoa_std_steps_cm, "tdoa_std", args.iter)
@@ -166,6 +167,8 @@ def main():
         "tdoa_m_steps_cm": tdoa_m_steps_cm,
         "tdoa_std_steps_cm": tdoa_std_steps_cm,
         "doa_steps": doa_steps,
+        "music_az_res_deg": np.array([fc.MUSIC_AZ_RES], dtype=np.float32),
+        "music_el_res_deg": np.array([fc.MUSIC_EL_RES], dtype=np.float32),
     }
     for key in MODEL_KEYS:
         payload[f"r_dist_{key}"] = r_dist[key]

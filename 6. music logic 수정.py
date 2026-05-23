@@ -128,8 +128,8 @@ def generate_controlled_traj_cm(td_noise_cm, doa_noise_deg, target_dist_cm=None,
 
 MUSIC_F0 = 32000.0          # 중심 주파수 (Hz)
 MUSIC_N_SNAP = 64           # 스냅샷 수 (공분산 행렬 추정용)
-MUSIC_AZ_RES = 2            # azimuth 탐색 해상도 (deg)
-MUSIC_EL_RES = 2            # elevation 탐색 해상도 (deg)
+MUSIC_AZ_RES = 1            # azimuth 탐색 해상도 (deg)
+MUSIC_EL_RES = 1            # elevation 탐색 해상도 (deg)
 MUSIC_SNR_LINEAR = 10.0     # 신호 대 잡음비 (선형, SNR=10 → 10dB)
 
 def music_doa_estimation_stable(sensors, raw_signals_t):

@@ -147,8 +147,10 @@ class KalmanFilter:
 MUSIC_F0     = 32000.0
 MUSIC_N_SNAP = 64
 MUSIC_SNR    = 316.0   # 25dB
-_AZ_NP = np.radians(np.arange(-180, 180, 2))
-_EL_NP = np.radians(np.arange(-90, 90, 2))
+MUSIC_AZ_RES = 1        # azimuth search resolution (deg)
+MUSIC_EL_RES = 1        # elevation search resolution (deg)
+_AZ_NP = np.radians(np.arange(-180, 180, MUSIC_AZ_RES))
+_EL_NP = np.radians(np.arange(-90, 90, MUSIC_EL_RES))
 _AZ_GRID, _EL_GRID = np.meshgrid(_AZ_NP, _EL_NP)
 _AZ_FLAT = _AZ_GRID.ravel().astype(np.float64)
 _EL_FLAT = _EL_GRID.ravel().astype(np.float64)

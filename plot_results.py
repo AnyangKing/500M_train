@@ -162,6 +162,13 @@ def main():
     r_tdoa_std = {k: data[f"r_tdoa_std_{k}"] for k in MODEL_KEYS}
     r_doa = {k: data[f"r_doa_{k}"] for k in MODEL_KEYS}
 
+    if "music_az_res_deg" in data and "music_el_res_deg" in data:
+        print(
+            "MUSIC grid resolution: "
+            f"az={float(data['music_az_res_deg'][0]):g} deg, "
+            f"el={float(data['music_el_res_deg'][0]):g} deg"
+        )
+
     print_summary_tables(dist_steps, tdoa_m_steps_cm, tdoa_std_steps_cm, doa_steps, r_dist, r_tdoa, r_tdoa_std, r_doa)
 
     gt_m = data["viz_gt_m"]
