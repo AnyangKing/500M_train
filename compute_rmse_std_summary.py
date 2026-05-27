@@ -135,7 +135,7 @@ def main():
     parser.add_argument(
         "--noise-summary",
         action="store_true",
-        help="Also compute representative endpoint conditions for TDOA bias, DOA noise, and TDOA noise std",
+        help="Also compute representative endpoint conditions for TDOA bias, DOA input angular error, and TDOA random input error std",
     )
     parser.add_argument(
         "--save",
@@ -180,8 +180,8 @@ def main():
     if args.noise_summary:
         noise_conditions = {
             "TDOA bias 100us": dict(target_dist_cm=40000.0, tdoa_std_cm=7.5, doa_std_deg=0.5, tdoa_bias_cm=15.0),
-            "DOA noise 1.2deg": dict(target_dist_cm=40000.0, tdoa_std_cm=7.5, doa_std_deg=1.2, tdoa_bias_cm=0.0),
-            "TDOA std 100us": dict(target_dist_cm=40000.0, tdoa_std_cm=15.0, doa_std_deg=0.5, tdoa_bias_cm=0.0),
+            "DOA input angular error std 1.2deg": dict(target_dist_cm=40000.0, tdoa_std_cm=7.5, doa_std_deg=1.2, tdoa_bias_cm=0.0),
+            "TDOA random input error std 100us": dict(target_dist_cm=40000.0, tdoa_std_cm=15.0, doa_std_deg=0.5, tdoa_bias_cm=0.0),
         }
         noise_data = {}
         for name, kwargs in noise_conditions.items():
@@ -192,7 +192,7 @@ def main():
                 safe_name = name.replace(" ", "_").replace(".", "p")
                 for key, values in res.items():
                     payload[f"noise_{safe_name}_{key}"] = values
-        print_table("[Representative Noise RMSE Mean/Std]", list(noise_data.keys()), noise_data)
+        print_table("[Representative Input Error RMSE Mean/Std]", list(noise_data.keys()), noise_data)
 
     if payload is not None:
         output_path = Path(args.save)

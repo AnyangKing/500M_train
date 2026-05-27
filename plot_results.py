@@ -120,7 +120,7 @@ def print_summary_tables(dist_steps, tdoa_m_steps_cm, tdoa_std_steps_cm, doa_ste
             f"{r_tdoa['CNN'][i]:.4f}"
         )
 
-    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 노이즈 표준편차별(us) ]\n{'='*175}")
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 무작위 입력 오차 표준편차별(us) ]\n{'='*175}")
     print(f"{'Std(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(tdoa_std_steps_cm)):
@@ -131,7 +131,7 @@ def print_summary_tables(dist_steps, tdoa_m_steps_cm, tdoa_std_steps_cm, doa_ste
             f"{r_tdoa_std['CNN'][i]:.4f}"
         )
 
-    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: DOA 오차별(deg) ]\n{'='*175}")
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: DOA 입력 각도 오차별(deg) ]\n{'='*175}")
     print(f"{'DOA(deg)':<10} | {'Prop':<16} | {'LSTM':<16} | {'MLP':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(doa_steps)):
@@ -248,7 +248,7 @@ def main():
     plt.ylabel("RMSE (m)")
     plt.tight_layout()
 
-    # Figure 6: DOA 검증 (MUSIC 제외)
+    # Figure 6: DOA 입력 각도 오차 검증 (MUSIC 제외)
     plt.figure(6, figsize=(10, 7))
     plt.gca().set_xticks(doa_steps)
     plt.gca().xaxis.grid(True, ls=":", alpha=0.5)
@@ -267,7 +267,7 @@ def main():
     plt.yscale("log")
     plt.ylim(0.1, 100)
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.xlabel("DOA Deviation (deg)")
+    plt.xlabel("DOA Input Angular Error Std (deg)")
     plt.ylabel("RMSE (m)")
     plt.tight_layout()
 
@@ -325,7 +325,7 @@ def main():
     plt.ylabel("RMSE (m)")
     plt.tight_layout()
 
-    # Figure 9: TDOA 노이즈 표준편차 분석
+    # Figure 9: TDOA 무작위 입력 오차 표준편차 분석
     plt.figure(9, figsize=(10, 7))
     td_std_us = (tdoa_std_steps_cm / 150000.0) * 1000000.0
     plt.gca().set_xticks(np.arange(0, 101, 10))
@@ -345,7 +345,7 @@ def main():
     plt.yscale("log")
     plt.ylim(0.1, 100)
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.xlabel(r"TDOA Noise Std ($\mu s$)")
+    plt.xlabel(r"TDOA Random Input Error Std ($\mu s$)")
     plt.ylabel("RMSE (m)")
     plt.tight_layout()
 

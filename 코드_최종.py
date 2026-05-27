@@ -464,14 +464,14 @@ if __name__ == '__main__':
         s_str = f"{round(i*1.0):>8}"
         print(f"{s_str} | {r_tdoa['Proposed'][i]:<16.4f} | {r_tdoa['MUSIC'][i]:<16.4f} | {r_tdoa['LSTM'][i]:<16.4f} | {r_tdoa['MLP'][i]:<16.4f} | {r_tdoa['KF'][i]:<16.4f} | {r_tdoa['CNN'][i]:.4f}")
 
-    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 노이즈 표준편차별(us) ]\n{'='*175}")
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: TDOA 무작위 입력 오차 표준편차별(us) ]\n{'='*175}")
     print(f"{'Std(us)':<10} | {'Prop':<16} | {'MUSIC':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(tdoa_std_steps_cm)):
         s_str = f"{round(i*1.0):>8}"
         print(f"{s_str} | {r_tdoa_std['Proposed'][i]:<16.4f} | {r_tdoa_std['MUSIC'][i]:<16.4f} | {r_tdoa_std['LSTM'][i]:<16.4f} | {r_tdoa_std['MLP'][i]:<16.4f} | {r_tdoa_std['KF'][i]:<16.4f} | {r_tdoa_std['CNN'][i]:.4f}")
 
-    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: DOA 오차별(deg) ]\n{'='*175}")
+    print(f"\n\n{'='*175}\n [ 종합 RMSE 비교 요약: DOA 입력 각도 오차별(deg) ]\n{'='*175}")
     print(f"{'DOA(deg)':<10} | {'Prop':<16} | {'LSTM':<16} | {'MLP':<16} | {'KF':<16} | {'1D-CNN'}")
     print(f"{'-'*175}")
     for i in range(len(doa_steps)):
@@ -531,7 +531,7 @@ if __name__ == '__main__':
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.title("TDOA Synchronization Error Analysis"); plt.xlabel(r"TDOA Bias ($\mu s$)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
-    # Figure 6: DOA 검증 (MUSIC 제외)
+    # Figure 6: DOA 입력 각도 오차 검증 (MUSIC 제외)
     plt.figure(6, figsize=(10, 7)); plt.gca().set_xticks(doa_steps)
     plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
     for k in model_styles.keys():
@@ -539,7 +539,7 @@ if __name__ == '__main__':
         plt.plot(doa_steps, r_doa[k], label=('1D-CNN' if k=='CNN' else k), color=model_styles[k]['color'],
                 marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=1.5, markevery=1)
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.title("DOA Validation"); plt.xlabel("DOA Deviation (deg)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
+    plt.title("DOA Input Angular Error Analysis"); plt.xlabel("DOA Input Angular Error Std (deg)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
     # Figure 7: 3D 궤적
     fig7 = plt.figure(7, figsize=(10, 8)); ax7 = fig7.add_subplot(111, projection='3d')
@@ -561,7 +561,7 @@ if __name__ == '__main__':
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
     plt.title("Figure 8: Distance Error (100~300m)"); plt.xlabel("Distance (m)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
-    # Figure 9: TDOA 노이즈 표준편차 분석
+    # Figure 9: TDOA 무작위 입력 오차 표준편차 분석
     plt.figure(9, figsize=(10, 7)); td_std_us = (tdoa_std_steps_cm / SOUND_SPEED_CM_S) * 1000000
     plt.gca().set_xticks(np.arange(0, 101, 10))
     plt.gca().xaxis.grid(True, ls=':', alpha=0.5); plt.gca().yaxis.grid(True, which='both', ls=':', alpha=0.5)
@@ -569,7 +569,7 @@ if __name__ == '__main__':
         plt.plot(td_std_us, r_tdoa_std[k], label=('1D-CNN' if k=='CNN' else k), color=model_styles[k]['color'],
                 marker=model_styles[k]['marker'], ls=model_styles[k]['ls'], lw=1.5, markevery=10)
     plt.yscale('log'); plt.ylim(0.1, 100); plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.title("TDOA Noise Std Analysis"); plt.xlabel(r"TDOA Noise Std ($\mu s$)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
+    plt.title("TDOA Random Input Error Std Analysis"); plt.xlabel(r"TDOA Random Input Error Std ($\mu s$)"); plt.ylabel("RMSE (m)"); plt.legend(); plt.tight_layout()
 
     # 논문 제출용 고해상도 Figure 저장 (600 DPI)
     for fig_n, filename in FIGURE_OUTPUTS.items():
