@@ -131,10 +131,10 @@ FIGURE_OUTPUTS = {
     3: "trajectory_yz_plane.png",
     4: "rmse_distance_0_600m.png",
     5: "rmse_tdoa_bias_0_100us.png",
-    6: "rmse_doa_noise_0_1p2deg.png",
+    6: "rmse_doa_input_angular_error_std_0_1p2deg.png",
     7: "trajectory_3d.png",
     8: "rmse_distance_100_300m_detail.png",
-    9: "rmse_tdoa_noise_std_0_100us.png",
+    9: "rmse_tdoa_random_input_error_std_0_100us.png",
 }
 
 def generate_controlled_traj_cm(td_noise_cm, doa_noise_deg, target_dist_cm=None, m_bias_cm=0.0):
