@@ -111,38 +111,8 @@ class CNN1DModel(nn.Module):
         return self.output_layer(self.conv_layers(x)).transpose(1, 2)
 
 # ==============================================================================
-# KF / MUSIC-LS 추론 함수
+# MUSIC-LS 추론 함수
 # ==============================================================================
-def solve_ls_localization(tdoa_values_cm, sensors):
-    s0 = sensors[0].astype(np.float64)
-    n  = len(tdoa_values_cm)
-    A  = np.zeros((n, 4))
-    b  = np.zeros(n)
-    for i in range(n):
-        si = sensors[i + 1].astype(np.float64)
-        di = tdoa_values_cm[i]
-        A[i, :3] = 2.0 * (s0 - si)
-        A[i, 3]  = -2.0 * di
-        b[i]     = di**2 + np.dot(s0, s0) - np.dot(si, si)
-    result, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-    return result[:3]
-
-class KalmanFilter:
-    def __init__(self, init_pos):
-        self.x = np.array([init_pos[0], init_pos[1], init_pos[2], 0, 0, 0])
-        self.F = np.eye(6); self.F[0,3]=self.F[1,4]=self.F[2,5]=1.0
-        self.H = np.zeros((3, 6)); self.H[0,0]=self.H[1,1]=self.H[2,2]=1.0
-        self.P = np.eye(6)*500
-        self.Q = np.diag([100, 100, 100, 10000, 10000, 10000])
-        self.R = np.eye(3)*100
-    def predict_and_update(self, z):
-        self.x = self.F @ self.x; self.P = self.F @ self.P @ self.F.T + self.Q
-        S = self.H @ self.P @ self.H.T + self.R
-        K = self.P @ self.H.T @ np.linalg.inv(S)
-        self.x = self.x + K @ (z - self.H @ self.x)
-        self.P = (np.eye(6) - K @ self.H) @ self.P
-        return self.x[:3]
-
 # MUSIC 관련 (추론 시간 측정용)
 MUSIC_F0     = 32000.0
 MUSIC_N_SNAP = 64
@@ -157,15 +127,6 @@ _EL_FLAT = _EL_GRID.ravel().astype(np.float64)
 _D_MAT   = np.stack([np.cos(_EL_FLAT)*np.cos(_AZ_FLAT),
                       np.cos(_EL_FLAT)*np.sin(_AZ_FLAT),
                       np.sin(_EL_FLAT)], axis=1)
-
-r_cm, L_cm = 3.3, 7.9
-S2 = np.sqrt(2)
-SENSORS = np.array([
-    [r_cm, 0, 0],      [r_cm/S2, r_cm/S2, -L_cm],
-    [0, r_cm, 0],      [-r_cm/S2, r_cm/S2, -L_cm],
-    [-r_cm, 0, 0],     [-r_cm/S2, -r_cm/S2, -L_cm],
-    [0, -r_cm, 0],     [r_cm/S2, -r_cm/S2, -L_cm],
-], dtype=np.float32)
 
 def music_doa_and_localize(raw_signal_t, feat_t, music_localizer):
     doa_vec = FINAL_CODE.music_doa_estimation_stable(FINAL_CODE.SENSORS_CM, raw_signal_t)
@@ -191,20 +152,6 @@ def measure_time_nn(model, dummy_input):
         if torch.cuda.is_available():
             torch.cuda.synchronize()
     return (time.perf_counter() - t0) / ITER * 1000  # ms
-
-def measure_time_kf(tdoa_dummy, sensors_dummy):
-    """KF: 초기화 포함 200스텝 전체 → 스텝당 평균"""
-    for _ in range(WARMUP):
-        kf = KalmanFilter(np.array([10000, 10000, 10000]))
-        for _ in range(200):
-            kf.predict_and_update(solve_ls_localization(tdoa_dummy, sensors_dummy))
-    t0 = time.perf_counter()
-    for _ in range(ITER):
-        kf = KalmanFilter(np.array([10000, 10000, 10000]))
-        for _ in range(200):
-            kf.predict_and_update(solve_ls_localization(tdoa_dummy, sensors_dummy))
-    total_ms = (time.perf_counter() - t0) / ITER * 1000
-    return total_ms / 200  # 스텝당 ms
 
 def measure_time_music(raw_dummy, feat_dummy):
     """MUSIC-LS: DOA estimation + TDOA/observed-DOA assisted localization, 1 step"""
@@ -270,7 +217,6 @@ if __name__ == '__main__':
     params = {}
     for name, model in models.items():
         params[name] = count_params(model)
-    params['KF']       = None
     params['MUSIC-LS'] = None
 
     # ==============================================================================
@@ -283,17 +229,14 @@ if __name__ == '__main__':
         times[name] = t
         print(f"  {name:<12}: {t:.4f} ms/step")
 
-    t_kf   = measure_time_kf(dummy_tdoa, SENSORS)
     t_music = measure_time_music(dummy_signal, dummy_feat)
-    times['KF']       = t_kf
     times['MUSIC-LS'] = t_music
-    print(f"  {'KF':<12}: {t_kf:.4f} ms/step")
     print(f"  {'MUSIC-LS':<12}: {t_music:.4f} ms/step")
 
     # ==============================================================================
     # 결과 출력 (논문 표 3 양식)
     # ==============================================================================
-    order = ['Proposed', 'LSTM', 'MLP', '1D-CNN', 'KF', 'MUSIC-LS']
+    order = ['Proposed', 'LSTM', 'MLP', '1D-CNN', 'MUSIC-LS']
 
     print(f"\n{'='*65}")
     print(f" [Table 3. Computational Complexity Comparison]")
@@ -309,5 +252,4 @@ if __name__ == '__main__':
     print(f"{'='*65}")
     print(f"* Device: {DEVICE}")
     print(f"* Measurement: {ITER} iterations, batch size = 1, sequence length = {WINDOW_SIZE}")
-    print(f"* KF: average per-step time (200 steps per trajectory)")
     print(f"* MUSIC-LS: DOA estimation + TDOA/observed-DOA assisted localization per timestep")
