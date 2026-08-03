@@ -7,13 +7,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
-import importlib.util, sys, torch
+import importlib.util, os, sys, torch
 import joblib
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 
 ROOT = Path(__file__).resolve().parent
-SAVE_DIR = ROOT  # 저장 위치 (필요시 변경)
+SAVE_DIR = Path(os.environ.get("TRAJECTORY_SAVE_DIR", ROOT))
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 plt.rcParams["font.family"] = "Malgun Gothic"
 plt.rcParams["axes.unicode_minus"] = False
@@ -70,7 +71,7 @@ MODEL_STYLES = {
 }
 
 def display_label(k):
-    return {"Proposed": "Proposed (Transformer)", "MUSIC": "MUSIC-LS",
+    return {"Proposed": "Proposed (Transformer)", "MUSIC": "MUSIC-Hybrid",
             "LSTM": "LSTM", "MLP": "MLP", "CNN": "1D-CNN"}.get(k, k)
 
 def get_axis_limits_from_tracks(tracks, dim, padding_ratio=0.08, min_padding=5.0):
@@ -178,6 +179,17 @@ preds_m["MUSIC"] = music_m
 
 ALL_KEYS = ["Proposed", "LSTM", "MLP", "CNN", "MUSIC"]
 MARKEVERY = 20
+
+np.savez_compressed(
+    SAVE_DIR / "selected_trajectory.npz",
+    selected_seed=np.asarray([best_seed], dtype=np.int32),
+    viz_gt_m=gt_m.astype(np.float32),
+    **{
+        f"viz_{key}_m": preds_m[key].astype(np.float32)
+        for key in ALL_KEYS
+    },
+)
+print("  저장: selected_trajectory.npz")
 
 def plot_2d(dim_x, dim_y, xlabel, ylabel, fname):
     plt.figure(figsize=(10, 8))

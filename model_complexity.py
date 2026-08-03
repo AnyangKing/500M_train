@@ -111,7 +111,7 @@ class CNN1DModel(nn.Module):
         return self.output_layer(self.conv_layers(x)).transpose(1, 2)
 
 # ==============================================================================
-# MUSIC-LS 추론 함수
+# MUSIC-Hybrid 추론 함수
 # ==============================================================================
 # MUSIC 관련 (추론 시간 측정용)
 MUSIC_F0     = 32000.0
@@ -154,7 +154,7 @@ def measure_time_nn(model, dummy_input):
     return (time.perf_counter() - t0) / ITER * 1000  # ms
 
 def measure_time_music(raw_dummy, feat_dummy):
-    """MUSIC-LS: DOA estimation + TDOA/observed-DOA assisted localization, 1 step"""
+    """MUSIC-Hybrid: MUSIC DOA + TOA/TDOA/observed-DOA localization, 1 step"""
     music_localizer = FINAL_CODE.MusicLocalizer(FINAL_CODE.SENSORS_CM)
     for _ in range(WARMUP):
         music_doa_and_localize(raw_dummy, feat_dummy, music_localizer)
@@ -217,7 +217,7 @@ if __name__ == '__main__':
     params = {}
     for name, model in models.items():
         params[name] = count_params(model)
-    params['MUSIC-LS'] = None
+    params['MUSIC-Hybrid'] = None
 
     # ==============================================================================
     # 추론 시간 측정
@@ -230,13 +230,13 @@ if __name__ == '__main__':
         print(f"  {name:<12}: {t:.4f} ms/step")
 
     t_music = measure_time_music(dummy_signal, dummy_feat)
-    times['MUSIC-LS'] = t_music
-    print(f"  {'MUSIC-LS':<12}: {t_music:.4f} ms/step")
+    times['MUSIC-Hybrid'] = t_music
+    print(f"  {'MUSIC-Hybrid':<12}: {t_music:.4f} ms/step")
 
     # ==============================================================================
     # 결과 출력 (논문 표 3 양식)
     # ==============================================================================
-    order = ['Proposed', 'LSTM', 'MLP', '1D-CNN', 'MUSIC-LS']
+    order = ['Proposed', 'LSTM', 'MLP', '1D-CNN', 'MUSIC-Hybrid']
 
     print(f"\n{'='*65}")
     print(f" [Table 3. Computational Complexity Comparison]")
@@ -252,4 +252,4 @@ if __name__ == '__main__':
     print(f"{'='*65}")
     print(f"* Device: {DEVICE}")
     print(f"* Measurement: {ITER} iterations, batch size = 1, sequence length = {WINDOW_SIZE}")
-    print(f"* MUSIC-LS: DOA estimation + TDOA/observed-DOA assisted localization per timestep")
+    print(f"* MUSIC-Hybrid: MUSIC DOA + TOA/TDOA/observed-DOA assisted localization per timestep")

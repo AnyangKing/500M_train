@@ -1,6 +1,8 @@
 import argparse
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator, MultipleLocator, ScalarFormatter
@@ -93,7 +95,7 @@ def load_results(path):
 
 
 def display_label(key):
-    return "1D-CNN" if key == "CNN" else key
+    return {"CNN": "1D-CNN", "MUSIC": "MUSIC-Hybrid"}.get(key, key)
 
 
 def print_summary_tables(dist_steps, tdoa_m_steps_cm, tdoa_std_steps_cm, doa_steps, r_dist, r_tdoa, r_tdoa_std, r_doa):
@@ -148,6 +150,7 @@ def main():
     parser.add_argument("--dpi", type=int, default=600, help="Saved figure DPI")
     parser.add_argument("--plane-padding-ratio", type=float, default=0.03, help="Padding ratio for XY/XZ/YZ plane figures")
     parser.add_argument("--plane-min-padding", type=float, default=2.0, help="Minimum padding for XY/XZ/YZ plane figures")
+    parser.add_argument("--only", type=int, nargs="*", choices=FIGURE_OUTPUTS, help="Save only the selected figure numbers")
     args = parser.parse_args()
 
     data = load_results(Path(args.input))
@@ -220,7 +223,7 @@ def main():
     plt.yscale("log")
     plt.ylim(0.1, 100)
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.xlabel("Distance (m)")
+    plt.xlabel("Initial Target Range (m)")
     plt.ylabel("RMSE (m)")
     plt.tight_layout()
 
@@ -244,7 +247,7 @@ def main():
     plt.yscale("log")
     plt.ylim(0.1, 100)
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.xlabel(r"TDOA Bias ($\mu s$)")
+    plt.xlabel(r"Sensor-wise Static TOA Bias Level ($\mu s$)")
     plt.ylabel("RMSE (m)")
     plt.tight_layout()
 
@@ -321,7 +324,7 @@ def main():
     plt.yscale("log")
     plt.ylim(0.1, 100)
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.xlabel("Distance (m)")
+    plt.xlabel("Initial Target Range (m)")
     plt.ylabel("RMSE (m)")
     plt.tight_layout()
 
@@ -345,12 +348,15 @@ def main():
     plt.yscale("log")
     plt.ylim(0.1, 100)
     plt.gca().yaxis.set_major_formatter(ScalarFormatter())
-    plt.xlabel(r"TDOA Random Input Error Std ($\mu s$)")
+    plt.xlabel(r"Sensor-wise Random TOA Error Std ($\mu s$)")
     plt.ylabel("RMSE (m)")
     plt.tight_layout()
 
     # 논문 제출용 고해상도 Figure 저장 (600 DPI)
-    for fig_n, filename in FIGURE_OUTPUTS.items():
+    selected_outputs = FIGURE_OUTPUTS if not args.only else {
+        fig_n: FIGURE_OUTPUTS[fig_n] for fig_n in args.only
+    }
+    for fig_n, filename in selected_outputs.items():
         plt.figure(fig_n)
         plt.savefig(ROOT / filename, dpi=args.dpi, bbox_inches="tight")
 
