@@ -153,15 +153,21 @@ def measure_time_nn(model, dummy_input):
             torch.cuda.synchronize()
     return (time.perf_counter() - t0) / ITER * 1000  # ms
 
-def measure_time_music(raw_dummy, feat_dummy):
-    """MUSIC-Hybrid: MUSIC DOA + TOA/TDOA/observed-DOA localization, 1 step"""
+def run_music_window(raw_window, feat_window, music_localizer):
+    """Process one window sequentially because MUSIC-Hybrid is stateful."""
+    for t in range(len(feat_window)):
+        music_doa_and_localize(raw_window[t], feat_window[t], music_localizer)
+
+
+def measure_time_music(raw_window, feat_window):
+    """Measure 20 sequential steps using CUDA MUSIC search and CPU localization."""
     music_localizer = FINAL_CODE.MusicLocalizer(FINAL_CODE.SENSORS_CM)
     for _ in range(WARMUP):
-        music_doa_and_localize(raw_dummy, feat_dummy, music_localizer)
+        run_music_window(raw_window, feat_window, music_localizer)
     t0 = time.perf_counter()
     for _ in range(ITER):
-        music_doa_and_localize(raw_dummy, feat_dummy, music_localizer)
-    return (time.perf_counter() - t0) / ITER * 1000  # ms/step
+        run_music_window(raw_window, feat_window, music_localizer)
+    return (time.perf_counter() - t0) / ITER * 1000  # ms/20-step window
 
 # ==============================================================================
 # 메인
@@ -200,15 +206,15 @@ if __name__ == '__main__':
 
     # 더미 입력 생성
     dummy_nn     = torch.randn(1, WINDOW_SIZE, INPUT_DIM).to(DEVICE)
-    dummy_tdoa   = np.random.randn(7).astype(np.float64) * 5.0  # cm 단위 TDOA
-    dummy_feat   = np.zeros(25, dtype=np.float32)
-    dummy_feat[0]   = 40000.0   # d0 (cm)
-    dummy_feat[2:9] = dummy_tdoa
-    dummy_feat[9:17] = 0.0      # observed azimuth
-    dummy_feat[17:25] = 0.0     # observed elevation
+    dummy_tdoa   = np.random.randn(WINDOW_SIZE, 7).astype(np.float64) * 5.0
+    dummy_feat   = np.zeros((WINDOW_SIZE, INPUT_DIM), dtype=np.float32)
+    dummy_feat[:, 0]    = 40000.0   # d0 (cm)
+    dummy_feat[:, 2:9]  = dummy_tdoa
+    dummy_feat[:, 9:17] = 0.0       # observed azimuth
+    dummy_feat[:, 17:25] = 0.0      # observed elevation
     noise_std = 1.0 / np.sqrt(2.0 * 316.0)
-    dummy_signal = (np.random.randn(8, MUSIC_N_SNAP)
-                    + 1j * np.random.randn(8, MUSIC_N_SNAP)) * noise_std
+    dummy_signal = (np.random.randn(WINDOW_SIZE, 8, MUSIC_N_SNAP)
+                    + 1j * np.random.randn(WINDOW_SIZE, 8, MUSIC_N_SNAP)) * noise_std
 
     # ==============================================================================
     # 파라미터 수 측정
@@ -227,11 +233,11 @@ if __name__ == '__main__':
     for name, model in models.items():
         t = measure_time_nn(model, dummy_nn)
         times[name] = t
-        print(f"  {name:<12}: {t:.4f} ms/step")
+        print(f"  {name:<12}: {t:.4f} ms/20-step window")
 
     t_music = measure_time_music(dummy_signal, dummy_feat)
     times['MUSIC-Hybrid'] = t_music
-    print(f"  {'MUSIC-Hybrid':<12}: {t_music:.4f} ms/step")
+    print(f"  {'MUSIC-Hybrid':<12}: {t_music:.4f} ms/20-step window")
 
     # ==============================================================================
     # 결과 출력 (논문 표 3 양식)
@@ -241,7 +247,7 @@ if __name__ == '__main__':
     print(f"\n{'='*65}")
     print(f" [Table 3. Computational Complexity Comparison]")
     print(f"{'='*65}")
-    print(f"{'Model':<14} | {'Parameters':>18} | {'Inference Time (ms/step)':>24}")
+    print(f"{'Model':<14} | {'Parameters':>18} | {'Time (ms/20-step window)':>24}")
     print(f"{'-'*65}")
     for name in order:
         p = params.get(name)
@@ -250,6 +256,9 @@ if __name__ == '__main__':
         t_str = f"{t:.4f}" if t is not None else "-"
         print(f"{name:<14} | {p_str:>18} | {t_str:>24}")
     print(f"{'='*65}")
-    print(f"* Device: {DEVICE}")
-    print(f"* Measurement: {ITER} iterations, batch size = 1, sequence length = {WINDOW_SIZE}")
-    print(f"* MUSIC-Hybrid: MUSIC DOA + TOA/TDOA/observed-DOA assisted localization per timestep")
+    print(f"* Neural networks: {DEVICE}, batch size = 1, one {WINDOW_SIZE}-step window per iteration")
+    print(
+        f"* MUSIC-Hybrid: PyTorch/CUDA MUSIC search + NumPy/CPU localization, "
+        f"{WINDOW_SIZE} sequential timesteps per iteration"
+    )
+    print(f"* Measurement: {ITER} timed workload iterations after {WARMUP} warmup iterations")
